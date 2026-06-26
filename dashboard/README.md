@@ -25,11 +25,16 @@ Open http://127.0.0.1:5173
 ## Deploy to Vercel
 
 1. Import the repo in Vercel (or connect Git).
-2. Set **Root Directory** to `dashboard`.
-3. Build settings (defaults work):
+2. Either:
+   - Set **Root Directory** to `dashboard` (recommended), **or**
+   - Leave root at repo root — the root `vercel.json` installs and builds from `dashboard/` automatically.
+3. Build settings (also set in `vercel.json`):
+   - **Install command:** `npm ci --include=dev` (dev deps include `typescript` / `tsc`)
    - **Build command:** `npm run build`
-   - **Output directory:** `dist`
+   - **Output directory:** `dist` (or `dashboard/dist` when deploying from repo root)
 4. In Firebase Console → Authentication → Authorized domains, add your Vercel domain (e.g. `your-app.vercel.app`).
+
+If you see `tsc: command not found`, Vercel did not install dev dependencies or did not run `npm install` inside `dashboard/`. Use one of the setups above and redeploy.
 
 The app talks to Firebase directly from the browser. No server-side API is required.
 
