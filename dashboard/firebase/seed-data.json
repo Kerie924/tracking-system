@@ -1,0 +1,44 @@
+{
+  "sites": {
+    "cedis-norte": {
+      "name": "CEDIS Norte",
+      "location": "Monterrey, NL",
+      "rampCount": 10,
+      "active": true
+    },
+    "cedis-centro": {
+      "name": "CEDIS Centro",
+      "location": "Ciudad de México",
+      "rampCount": 8,
+      "active": true
+    },
+    "cedis-sur": {
+      "name": "CEDIS Sur",
+      "location": "Guadalajara, JAL",
+      "rampCount": 12,
+      "active": true
+    }
+  },
+  "users": {
+    "admin-001": {
+      "name": "Miguel Villalpando",
+      "email": "mv@plastictrade.mx",
+      "role": "admin",
+      "active": true
+    },
+    "leader-norte": {
+      "name": "Carlos Ramírez",
+      "email": "carlos.r@plastictrade.mx",
+      "role": "site_leader",
+      "siteId": "cedis-norte",
+      "active": true
+    },
+    "leader-centro": {
+      "name": "Ana García",
+      "email": "ana.g@plastictrade.mx",
+      "role": "site_leader",
+      "siteId": "cedis-centro",
+      "active": true
+    }
+  }
+}

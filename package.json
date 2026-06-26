@@ -1,0 +1,13 @@
+{
+  "name": "tracking-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plastic Trade - Material Tracking System (Mobile + Dashboard)",
+  "scripts": {
+    "install:all": "npm install --prefix dashboard",
+    "dev": "npm run dev --prefix dashboard",
+    "dev:dashboard": "npm run dev --prefix dashboard",
+    "build": "npm run build --prefix dashboard",
+    "build:dashboard": "npm run build --prefix dashboard"
+  }
+}
