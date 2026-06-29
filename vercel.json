@@ -2,5 +2,16 @@
   "installCommand": "npm ci --prefix dashboard --include=dev",
   "buildCommand": "npm run build --prefix dashboard",
   "outputDirectory": "dashboard/dist",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        }
+      ]
+    }
+  ],
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

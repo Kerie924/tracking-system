@@ -2,27 +2,44 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
-  FacebookAuthProvider,
   signOut as firebaseSignOut,
   updateProfile,
+  type AuthProvider,
   type User,
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 
 const googleProvider = new GoogleAuthProvider();
-const facebookProvider = new FacebookAuthProvider();
 
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-export async function signInWithGoogle(): Promise<User> {
-  const result = await signInWithPopup(auth, googleProvider);
-  return result.user;
+async function signInWithOAuth(provider: AuthProvider): Promise<User> {
+  try {
+    const result = await signInWithPopup(auth, provider);
+    return result.user;
+  } catch (error) {
+    const code = (error as { code?: string })?.code ?? '';
+    if (code === 'auth/popup-blocked' || code === 'auth/cancelled-popup-request') {
+      await signInWithRedirect(auth, provider);
+      throw Object.assign(new Error('Redirecting for sign-in'), {
+        code: 'auth/redirect-pending',
+      });
+    }
+    throw error;
+  }
 }
 
-export async function signInWithFacebook(): Promise<User> {
-  const result = await signInWithPopup(auth, facebookProvider);
-  return result.user;
+export async function signInWithGoogle(): Promise<User> {
+  return signInWithOAuth(googleProvider);
+}
+
+/** Call once on app load before onAuthStateChanged (redirect fallback only). */
+export async function completeOAuthRedirect(): Promise<User | null> {
+  const result = await getRedirectResult(auth);
+  return result?.user ?? null;
 }
 
 export async function signInWithEmail(email: string, password: string): Promise<User> {
@@ -60,6 +77,8 @@ export function getAuthErrorMessage(error: unknown): string {
     'auth/account-exists-with-different-credential':
       'Ya existe una cuenta con este correo usando otro método de inicio de sesión.',
     'auth/popup-blocked': 'Permita ventanas emergentes para iniciar sesión.',
+    'auth/unauthorized-domain': 'Este dominio no está autorizado en Firebase Authentication.',
+    'auth/operation-not-allowed': 'Este método de inicio de sesión no está habilitado.',
   };
   return messages[code] ?? 'Error de autenticación. Intente nuevamente.';
 }

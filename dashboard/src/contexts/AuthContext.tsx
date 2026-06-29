@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
+import { completeOAuthRedirect, getAuthErrorMessage } from '@/services/auth';
 import { ensureUserProfile, getUserProfile } from '@/services/firestoreData';
 import { DEV_ALL_ADMIN } from '@/lib/config';
 import type { UserProfile } from '@/types';
@@ -17,6 +18,8 @@ interface AuthContextValue {
   profile: UserProfile | null;
   loading: boolean;
   isAdmin: boolean;
+  oauthError: string | null;
+  clearOauthError: () => void;
   refreshProfile: () => Promise<void>;
 }
 
@@ -25,6 +28,8 @@ const AuthContext = createContext<AuthContextValue>({
   profile: null,
   loading: true,
   isAdmin: false,
+  oauthError: null,
+  clearOauthError: () => {},
   refreshProfile: async () => {},
 });
 
@@ -32,6 +37,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [oauthError, setOauthError] = useState<string | null>(null);
+
+  const clearOauthError = useCallback(() => setOauthError(null), []);
 
   const refreshProfile = useCallback(async () => {
     if (!user) return;
@@ -40,34 +48,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
+    let unsubscribe: (() => void) | undefined;
 
-      if (firebaseUser) {
-        try {
-          const p = await ensureUserProfile(
-            firebaseUser.uid,
-            firebaseUser.email ?? '',
-            firebaseUser.displayName
-          );
-          setProfile(p);
-        } catch {
-          setProfile(null);
-        }
-      } else {
-        setProfile(null);
+    async function initAuth() {
+      try {
+        await completeOAuthRedirect();
+      } catch (err) {
+        setOauthError(getAuthErrorMessage(err));
       }
 
-      setLoading(false);
-    });
-    return unsubscribe;
+      unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+        setUser(firebaseUser);
+
+        if (firebaseUser) {
+          try {
+            const p = await ensureUserProfile(
+              firebaseUser.uid,
+              firebaseUser.email ?? '',
+              firebaseUser.displayName
+            );
+            setProfile(p);
+          } catch {
+            setProfile(null);
+          }
+        } else {
+          setProfile(null);
+        }
+
+        setLoading(false);
+      });
+    }
+
+    void initAuth();
+    return () => unsubscribe?.();
   }, []);
 
   const isAdmin = DEV_ALL_ADMIN || profile?.role === 'admin' || profile?.role == null;
 
   return (
     <AuthContext.Provider
-      value={{ user, profile, loading, isAdmin, refreshProfile }}
+      value={{
+        user,
+        profile,
+        loading,
+        isAdmin,
+        oauthError,
+        clearOauthError,
+        refreshProfile,
+      }}
     >
       {children}
     </AuthContext.Provider>
