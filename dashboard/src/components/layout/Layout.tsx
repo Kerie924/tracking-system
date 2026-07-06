@@ -5,7 +5,6 @@ import {
   BarChart3,
   Users,
   Monitor,
-  Recycle,
   ChevronLeft,
   ChevronRight,
   LogOut,
