@@ -11,6 +11,7 @@ import {
   signUpWithEmail,
   getAuthErrorMessage,
 } from '@/services/auth';
+import appIcon from '@/assets/app-icon-1024.png';
 
 type AuthMode = 'signin' | 'signup';
 
@@ -80,9 +81,7 @@ export function LoginPage() {
     <div className="flex min-h-screen">
       <div className="hidden w-1/2 bg-gradient-to-br from-brand-700 via-brand-600 to-brand-800 lg:flex lg:flex-col lg:justify-between lg:p-12">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
-            <Recycle className="h-6 w-6 text-white" />
-          </div>
+          <img src={appIcon} alt='layout-logo' className="flex h-12 w-12 items-center justify-center rounded-xl backdrop-blur" />
           <div>
             <h1 className="text-xl font-bold text-white">{t.appName}</h1>
             <p className="text-sm text-white/70">{t.appSubtitle}</p>
