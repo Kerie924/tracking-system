@@ -56,8 +56,8 @@ export function TrendChart({ data, variant = 'light' }: TrendChartProps) {
       <AreaChart data={formatted}>
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#10b981" stopOpacity={isDark ? 0.35 : 0.2} />
-            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+            <stop offset="5%" stopColor="#428dbe" stopOpacity={isDark ? 0.35 : 0.2} />
+            <stop offset="95%" stopColor="#428dbe" stopOpacity={0} />
           </linearGradient>
         </defs>
         <CartesianGrid
@@ -80,7 +80,7 @@ export function TrendChart({ data, variant = 'light' }: TrendChartProps) {
           type="monotone"
           dataKey="count"
           name={t.dashboard.totalSheets}
-          stroke="#10b981"
+          stroke="#428dbe"
           strokeWidth={2}
           fill={`url(#${gradientId})`}
         />
@@ -349,7 +349,7 @@ export function SiteBarChart({ data }: SiteBarProps) {
               width={120}
             />
             <Tooltip contentStyle={tooltipStyle} />
-            <Bar dataKey="value" name={t.dashboard.totalSheets} fill="#10b981" radius={[0, 4, 4, 0]} />
+            <Bar dataKey="value" name={t.dashboard.totalSheets} fill="#428dbe" radius={[0, 4, 4, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </CardContent>

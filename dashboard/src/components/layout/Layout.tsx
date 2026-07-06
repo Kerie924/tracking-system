@@ -20,6 +20,7 @@ import { DEV_ALL_ADMIN } from '@/lib/config';
 import { useTranslation } from '@/contexts/LanguageContext';
 import { signOut } from '@/services/auth';
 import { Button } from '@/components/ui/Button';
+import appIcon from '@/assets/app-icon-1024.png';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -59,9 +60,7 @@ export function Sidebar({
       )}
     >
       <div className="flex h-16 items-center gap-3 border-b border-surface-200 px-4">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-600 shadow-lg shadow-brand-600/20">
-          <Recycle className="h-5 w-5 text-white" />
-        </div>
+        <img src={appIcon} alt='layout-logo' className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" />
         {!collapsed && (
           <div className="min-w-0 flex-1 overflow-hidden">
             <h1 className="truncate text-sm font-bold text-surface-900">
