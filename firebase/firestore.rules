@@ -1,10 +1,60 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Development rules: any authenticated user can read/write.
-    // Collection path: /users/{userId}/serviceSheets/{sheetId}
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userRole() {
+      let role = userDoc().data.role;
+      return role == 'admin' ? 'owner'
+        : role == 'user' ? 'customer'
+        : role;
+    }
+
+    function isOwner() {
+      return signedIn() && userRole() == 'owner';
+    }
+
+    function isAdvisor() {
+      return signedIn() && userRole() == 'advisor';
+    }
+
+    function canViewAllSheets() {
+      return isOwner() || isAdvisor();
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || canViewAllSheets());
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (
+        request.auth.uid == userId
+        || (isOwner() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']))
+      );
+      allow delete: if isOwner();
+
+      match /serviceSheets/{sheetId} {
+        allow read: if signedIn() && (request.auth.uid == userId || canViewAllSheets());
+        allow create: if signedIn() && (
+          request.auth.uid == userId
+          || isAdvisor()
+          || isOwner()
+        );
+        allow update: if signedIn() && (
+          isOwner()
+          || isAdvisor()
+          || (request.auth.uid == userId && resource.data.get('status', 'draft') == 'draft')
+        );
+        allow delete: if isOwner();
+      }
+    }
+
+    match /{path=**}/serviceSheets/{sheetId} {
+      allow read: if canViewAllSheets();
     }
   }
 }

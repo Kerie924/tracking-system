@@ -1,4 +1,4 @@
-import { MaterialBadge } from '@/components/ui/Badge';
+import { MaterialBadge, StatusBadge } from '@/components/ui/Badge';
 import { formatDateTime } from '@/lib/utils';
 import { useTranslation } from '@/contexts/LanguageContext';
 import {
@@ -56,6 +56,7 @@ export function ServiceSheetTable({
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={s.status} />
                 {known ? (
                   <MaterialBadge type={primaryMaterial as MaterialType} />
                 ) : (
@@ -77,11 +78,14 @@ export function ServiceSheetTable({
       </div>
 
       <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[640px]">
+        <table className="w-full min-w-[720px]">
           <thead>
             <tr className="border-b border-surface-200 text-left">
               <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-surface-800/50">
                 {t.serviceSheet.folio}
+              </th>
+              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-surface-800/50">
+                {t.serviceSheet.status}
               </th>
               <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-surface-800/50">
                 {t.serviceSheet.materials}
@@ -124,6 +128,9 @@ export function ServiceSheetTable({
                       </span>
                       <p className="text-xs text-surface-400">{s.codigo}</p>
                     </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={s.status} />
                   </td>
                   <td className="px-4 py-3">
                     {known ? (

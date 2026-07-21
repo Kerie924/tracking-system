@@ -17,8 +17,9 @@ export function UsersPage() {
   const [savedId, setSavedId] = useState<string | null>(null);
 
   const roleColors: Record<UserRole, string> = {
-    admin: 'bg-purple-50 text-purple-700',
-    user: 'bg-surface-100 text-surface-600',
+    owner: 'bg-purple-50 text-purple-700',
+    advisor: 'bg-sky-50 text-sky-700',
+    customer: 'bg-surface-100 text-surface-600',
   };
 
   async function handleRoleChange(userId: string, role: UserRole) {

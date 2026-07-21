@@ -13,9 +13,15 @@ import {
   FIRESTORE_USERS_COLLECTION,
   FIRESTORE_SERVICE_SHEETS_COLLECTION,
 } from '@/lib/firebase';
-import { DEV_ALL_ADMIN } from '@/lib/config';
-import type { ServiceSheet, UserProfile, UserRole, Language } from '@/types';
-import { createEmptyMaterialMap, normalizeMaterialType, parseServiceSheetMaterials } from '@/types';
+import { DEV_ALL_OWNER } from '@/lib/config';
+import type { ServiceSheet, UserProfile, UserRole, Language, ServiceSheetStatus } from '@/types';
+import {
+  createEmptyMaterialMap,
+  normalizeMaterialType,
+  normalizeSheetStatus,
+  normalizeUserRole,
+  parseServiceSheetMaterials,
+} from '@/types';
 
 function parseServiceSheet(
   docId: string,
@@ -33,6 +39,7 @@ function parseServiceSheet(
     codigo: data.codigo ?? '',
     fecha: data.fecha ?? '',
     createdAt: data.createdAt ?? '',
+    status: normalizeSheetStatus(data.status),
     autoriza: data.autoriza,
     elaboro: data.elaboro,
     entrega: data.entrega,
@@ -69,14 +76,14 @@ function extractUserIdFromPath(path: string): string {
 export function subscribeToServiceSheetsCollection(
   options: {
     userId: string;
-    isAdmin: boolean;
+    canViewAllSheets: boolean;
     userName?: string;
     userEmail?: string;
   },
   onData: (sheets: ServiceSheet[]) => void,
   onError?: (error: Error) => void
 ) {
-  if (options.isAdmin || DEV_ALL_ADMIN) {
+  if (options.canViewAllSheets || DEV_ALL_OWNER) {
     return subscribeToAllServiceSheets(onData, onError);
   }
 
@@ -162,7 +169,7 @@ export function subscribeToUsers(
           id: d.id,
           name: data.name ?? data.email?.split('@')[0] ?? d.id.slice(0, 8),
           email: data.email ?? '',
-          role: (data.role ?? 'admin') as UserRole,
+          role: normalizeUserRole(data.role),
           language: (data.language ?? 'es') as Language,
           createdAt: data.createdAt ?? '',
         };
@@ -178,11 +185,16 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   const snap = await getDoc(userDocRef(uid));
   if (!snap.exists()) return null;
   const data = snap.data();
+  const role = normalizeUserRole(data.role);
+  // Persist migrated role when legacy values are found
+  if (data.role !== role) {
+    await setDoc(userDocRef(uid), { role }, { merge: true });
+  }
   return {
     id: snap.id,
     name: data.name ?? '',
     email: data.email ?? '',
-    role: (data.role ?? 'admin') as UserRole,
+    role,
     language: (data.language ?? 'es') as Language,
     createdAt: data.createdAt ?? '',
   };
@@ -200,7 +212,7 @@ export async function ensureUserProfile(
     const profile: Omit<UserProfile, 'id'> = {
       name: displayName || email.split('@')[0],
       email,
-      role: 'admin',
+      role: 'customer',
       language: 'es',
       createdAt: new Date().toISOString(),
     };
@@ -210,7 +222,9 @@ export async function ensureUserProfile(
 
   const data = snap.data();
   const updates: Record<string, string> = {};
-  if (!data.role) updates.role = 'admin';
+  const role = normalizeUserRole(data.role);
+  if (data.role !== role) updates.role = role;
+  if (!data.role) updates.role = role;
   if (!data.language) updates.language = 'es';
   if (!data.email) updates.email = email;
   if (!data.name && displayName) updates.name = displayName;
@@ -222,7 +236,7 @@ export async function ensureUserProfile(
     id: uid,
     name: data.name ?? displayName ?? '',
     email: data.email ?? email,
-    role: (updates.role ?? data.role ?? 'admin') as UserRole,
+    role: (updates.role as UserRole | undefined) ?? role,
     language: (updates.language ?? data.language ?? 'es') as Language,
     createdAt: data.createdAt ?? '',
   };
@@ -349,6 +363,7 @@ export function serviceSheetToFirestorePayload(
     codigo: sheet.codigo,
     fecha: sheet.fecha,
     createdAt: sheet.createdAt || new Date().toISOString(),
+    status: (sheet.status ?? 'draft') as ServiceSheetStatus,
     materials: sheet.materials
       .map((m) => {
         const materialType = normalizeMaterialType(String(m.materialType));
@@ -357,7 +372,11 @@ export function serviceSheetToFirestorePayload(
           materialType,
           quantity: m.quantity || 0,
         };
+        if (m.unitOfMeasure) entry.unitOfMeasure = m.unitOfMeasure;
         if (m.unit) entry.unit = m.unit;
+        if (m.kilograms != null && Number.isFinite(m.kilograms)) {
+          entry.kilograms = m.kilograms;
+        }
         return entry;
       })
       .filter(Boolean),

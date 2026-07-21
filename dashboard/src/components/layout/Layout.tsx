@@ -15,7 +15,6 @@ import {
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { DEV_ALL_ADMIN } from '@/lib/config';
 import { useTranslation } from '@/contexts/LanguageContext';
 import { signOut } from '@/services/auth';
 import { Button } from '@/components/ui/Button';
@@ -35,14 +34,14 @@ export function Sidebar({
   onMobileClose,
 }: SidebarProps) {
   const location = useLocation();
-  const { isAdmin } = useAuth();
+  const { canManageUsers } = useAuth();
   const { t } = useTranslation();
 
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/departures', icon: FileText, label: t.nav.serviceSheets },
     { to: '/analytics', icon: BarChart3, label: t.nav.analytics },
-    ...(isAdmin || DEV_ALL_ADMIN
+    ...(canManageUsers
       ? [{ to: '/users', icon: Users, label: t.nav.userManagement }]
       : []),
     { to: '/profile', icon: UserCircle, label: t.nav.profile },

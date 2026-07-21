@@ -1,25 +1,17 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { DEV_ALL_ADMIN } from '@/lib/config';
-import { LoadingSpinner } from '@/components/ui/Modal';
 import { useTranslation } from '@/contexts/LanguageContext';
 
-export function AdminRoute({ children }: { children: React.ReactNode }) {
-  const { loading, isAdmin } = useAuth();
+export function OwnerRoute({ children }: { children: React.ReactNode }) {
+  const { loading, canManageUsers } = useAuth();
   const { t } = useTranslation();
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface-50">
-        <LoadingSpinner />
-      </div>
-    );
-  }
+  if (loading) return null;
 
-  if (!isAdmin && !DEV_ALL_ADMIN) {
+  if (!canManageUsers) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-surface-50 p-8">
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
-          <p className="text-sm text-amber-800">{t.users.adminOnly}</p>
+      <div className="flex min-h-screen items-center justify-center bg-surface-50 p-6">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-6 py-4">
+          <p className="text-sm text-amber-800">{t.users.ownerOnly}</p>
         </div>
       </div>
     );
@@ -27,3 +19,6 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
 
   return <>{children}</>;
 }
+
+/** @deprecated Use OwnerRoute */
+export const AdminRoute = OwnerRoute;

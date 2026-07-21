@@ -1,6 +1,6 @@
 import { Check } from 'lucide-react';
 import { useTranslation } from '@/contexts/LanguageContext';
-import { getMaterialLabel } from '@/i18n/translations';
+import { getMaterialLabel, getUnitLabel, getUnitOfMeasureLabel } from '@/i18n/translations';
 import { cn, datetimeLocalToIso, formatDateTime, isoToDatetimeLocal } from '@/lib/utils';
 import appIcon from '@/assets/app-icon-1024.png';
 import { MercadoLibreLogo } from '@/components/serviceSheets/MercadoLibreLogo';
@@ -8,10 +8,14 @@ import {
   formatNumber,
   getMaterialDetailsMap,
   matchesUnitOption,
+  OTHER_ROW_UNIT_OF_MEASURE,
   SERVICE_SHEET_MATERIAL_ROWS,
+  SERVICE_SHEET_UNIT_OPTIONS,
   toggleSheetMaterial,
+  updateSheetMaterialKilograms,
   updateSheetMaterialQuantity,
   updateSheetMaterialUnit,
+  updateSheetMaterialUnitOfMeasure,
   type MaterialType,
   type ServiceSheet,
 } from '@/types';
@@ -95,11 +99,31 @@ function FormCheckbox({
 }
 
 function materialUnitMatches(
-  entry: { unit?: string; units: string[] },
+  entry: { unitOfMeasure?: string; unit?: string; units: string[] },
   option: string
 ): boolean {
+  if (entry.unitOfMeasure) {
+    return matchesUnitOption(entry.unitOfMeasure, option);
+  }
+  // Legacy sheets may still store measure values in unit/units
   if (entry.units.some((unit) => matchesUnitOption(unit, option))) return true;
-  return matchesUnitOption(entry.unit, option);
+  if (
+    entry.unit &&
+    !SERVICE_SHEET_UNIT_OPTIONS.some((unitOption) =>
+      matchesUnitOption(entry.unit, unitOption)
+    )
+  ) {
+    return matchesUnitOption(entry.unit, option);
+  }
+  return false;
+}
+
+function resolveSelectedUnitOption(storedUnit?: string): string {
+  if (!storedUnit) return '';
+  const match = SERVICE_SHEET_UNIT_OPTIONS.find((option) =>
+    matchesUnitOption(storedUnit, option)
+  );
+  return match ?? '';
 }
 
 function MetaBox({
@@ -253,13 +277,33 @@ export function ServiceSheetFormView({
     );
   };
 
+  const handleUnitOfMeasureSelect = (materialType: MaterialType, unitOption: string) => {
+    if (!editable || !onChange) return;
+    onChange(updateSheetMaterialUnitOfMeasure(sheet, materialType, unitOption));
+  };
+
   const handleUnitSelect = (materialType: MaterialType, unitOption: string) => {
     if (!editable || !onChange) return;
     onChange(updateSheetMaterialUnit(sheet, materialType, unitOption));
   };
 
+  const handleKilogramsChange = (materialType: MaterialType, raw: string) => {
+    if (!editable || !onChange) return;
+    const kilograms = Number(raw);
+    onChange(
+      updateSheetMaterialKilograms(
+        sheet,
+        materialType,
+        Number.isFinite(kilograms) ? kilograms : 0
+      )
+    );
+  };
+
+  const materialsGridClass =
+    'grid grid-cols-[36px_minmax(7rem,1.1fr)_4.5rem_minmax(8rem,1.4fr)_minmax(7rem,0.9fr)_5.5rem]';
+
   return (
-    <div className="mx-auto max-w-4xl space-y-4 font-sans text-surface-900">
+    <div className="mx-auto max-w-6xl space-y-4 font-sans text-surface-900">
       <FormSection>
         <div className="border-b border-surface-200 bg-gradient-to-r from-brand-600 to-indigo-600 px-4 py-3 text-center">
           <p className="text-sm font-bold tracking-[0.2em] text-white sm:text-base">
@@ -326,7 +370,14 @@ export function ServiceSheetFormView({
       </FormSection>
 
       <FormSection>
-        <div className="grid grid-cols-[40px_1fr_88px_1.2fr] border-b border-surface-200 bg-surface-100/90 text-[10px] font-semibold uppercase tracking-wide text-surface-600 sm:text-[11px]">
+        <div className="overflow-x-auto">
+        <div className="min-w-[720px]">
+        <div
+          className={cn(
+            materialsGridClass,
+            'border-b border-surface-200 bg-surface-100/90 text-[10px] font-semibold uppercase tracking-wide text-surface-600 sm:text-[11px]'
+          )}
+        >
           <div className="border-r border-surface-200 px-1 py-2.5 text-center">✓</div>
           <div className="border-r border-surface-200 px-2 py-2.5">
             {t.serviceSheetForm.materialCol}
@@ -334,16 +385,23 @@ export function ServiceSheetFormView({
           <div className="border-r border-surface-200 px-2 py-2.5 text-center">
             {t.serviceSheetForm.quantityCol}
           </div>
-          <div className="px-2 py-2.5">{t.serviceSheetForm.unitCol}</div>
+          <div className="border-r border-surface-200 px-2 py-2.5">
+            {t.serviceSheetForm.unitOfMeasureCol}
+          </div>
+          <div className="border-r border-surface-200 px-2 py-2.5">
+            {t.serviceSheetForm.unitCol}
+          </div>
+          <div className="px-2 py-2.5 text-center">{t.serviceSheetForm.kilogramsCol}</div>
         </div>
 
         {SERVICE_SHEET_MATERIAL_ROWS.map((row, index) => {
           const entry = materialDetails[row.id];
+          const selectedUnit = resolveSelectedUnitOption(entry.unit);
           return (
             <div
               key={row.id}
               className={cn(
-                'grid grid-cols-[40px_1fr_88px_1.2fr]',
+                materialsGridClass,
                 index % 2 === 1 && 'bg-surface-50/40',
                 'border-b border-surface-100 last:border-b-0'
               )}
@@ -366,7 +424,7 @@ export function ServiceSheetFormView({
                     min={0}
                     value={entry.quantity}
                     onChange={(e) => handleQuantityChange(row.id, e.target.value)}
-                    className={cn(fieldInputClass, 'w-16 text-center')}
+                    className={cn(fieldInputClass, 'w-14 text-center')}
                   />
                 ) : (
                   <span className="text-sm font-semibold">
@@ -374,14 +432,15 @@ export function ServiceSheetFormView({
                   </span>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-2">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-r border-surface-100 px-2 py-2">
                 {row.units.map((unit) => {
                   const unitChecked = materialUnitMatches(entry, unit);
+                  const unitLabel = getUnitOfMeasureLabel(unit, language);
                   const content = (
                     <>
                       <FormCheckbox checked={unitChecked} />
                       <span className={cn(unitChecked && 'font-medium text-surface-900')}>
-                        {unit}
+                        {unitLabel}
                       </span>
                     </>
                   );
@@ -391,7 +450,7 @@ export function ServiceSheetFormView({
                       <button
                         key={unit}
                         type="button"
-                        onClick={() => handleUnitSelect(row.id, unit)}
+                        onClick={() => handleUnitOfMeasureSelect(row.id, unit)}
                         className="inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 text-[10px] transition-colors hover:bg-surface-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 sm:text-[11px]"
                       >
                         {content}
@@ -409,17 +468,89 @@ export function ServiceSheetFormView({
                   );
                 })}
               </div>
+              <div className="flex items-center border-r border-surface-100 px-2 py-2">
+                {editable ? (
+                  <select
+                    value={selectedUnit}
+                    onChange={(e) => handleUnitSelect(row.id, e.target.value)}
+                    className={cn(fieldInputClass, 'cursor-pointer py-1.5')}
+                  >
+                    <option value="">{t.serviceSheetForm.selectUnit}</option>
+                    {SERVICE_SHEET_UNIT_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {getUnitLabel(option, language)}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-[11px] text-surface-800/70 sm:text-xs">
+                    {selectedUnit ? getUnitLabel(selectedUnit, language) : '—'}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center px-2 py-2">
+                {editable ? (
+                  <div className="relative w-full">
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={entry.kilograms ?? ''}
+                      onChange={(e) => handleKilogramsChange(row.id, e.target.value)}
+                      className={cn(fieldInputClass, 'w-full bg-surface-50 pr-8 text-right')}
+                    />
+                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] font-medium text-surface-500">
+                      {t.serviceSheetForm.kg}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="relative w-full">
+                    <div
+                      className={cn(
+                        fieldInputClass,
+                        'min-h-[1.75rem] bg-surface-50 pr-8 text-right'
+                      )}
+                    >
+                      {entry.kilograms != null
+                        ? formatNumber(entry.kilograms, locale)
+                        : ''}
+                    </div>
+                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] font-medium text-surface-500">
+                      {t.serviceSheetForm.kg}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}
 
-        <div className="grid grid-cols-[40px_1fr_88px_1.2fr] border-t border-surface-200 bg-surface-50/30">
+        <div
+          className={cn(
+            materialsGridClass,
+            'border-t border-surface-200 bg-surface-50/30'
+          )}
+        >
           <div className="border-r border-surface-100 px-1 py-2" />
           <div className="border-r border-surface-100 px-2 py-2 text-[11px] sm:text-xs">
             {t.serviceSheetForm.other}:
           </div>
           <div className="border-r border-surface-100 px-2 py-2" />
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-r border-surface-100 px-2 py-2">
+            {OTHER_ROW_UNIT_OF_MEASURE.map((unit) => (
+              <span
+                key={unit}
+                className="inline-flex items-center gap-1.5 text-[10px] text-surface-500 sm:text-[11px]"
+              >
+                <FormCheckbox checked={false} />
+                <span>{getUnitOfMeasureLabel(unit, language)}</span>
+              </span>
+            ))}
+          </div>
+          <div className="border-r border-surface-100 px-2 py-2" />
           <div className="px-2 py-2" />
+        </div>
+        </div>
         </div>
       </FormSection>
 

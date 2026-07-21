@@ -7,7 +7,6 @@ import {
   type ReactNode,
 } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { DEV_ALL_ADMIN } from '@/lib/config';
 import {
   subscribeToServiceSheetsCollection,
   subscribeToUsers,
@@ -25,14 +24,20 @@ interface FirestoreDataContextValue {
   usersLoading: boolean;
   sheetsError: string | null;
   usersError: string | null;
+  canViewAllSheets: boolean;
+  /** @deprecated Use canViewAllSheets */
   isAdmin: boolean;
 }
 
 const FirestoreDataContext = createContext<FirestoreDataContextValue | null>(null);
 
 export function FirestoreDataProvider({ children }: { children: ReactNode }) {
-  const { user, profile, isAdmin, loading: authLoading } = useAuth();
-  const canLoadAdminData = isAdmin || DEV_ALL_ADMIN;
+  const {
+    user,
+    profile,
+    canViewAllSheets,
+    loading: authLoading,
+  } = useAuth();
 
   const [sheetsRaw, setSheetsRaw] = useState<ServiceSheet[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -59,7 +64,7 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
     const unsubscribe = subscribeToServiceSheetsCollection(
       {
         userId,
-        isAdmin: canLoadAdminData,
+        canViewAllSheets,
         userName: profileName,
         userEmail: profileEmail,
       },
@@ -75,10 +80,10 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
     );
 
     return unsubscribe;
-  }, [authLoading, userId, profileId, profileName, profileEmail, canLoadAdminData]);
+  }, [authLoading, userId, profileId, profileName, profileEmail, canViewAllSheets]);
 
   useEffect(() => {
-    if (authLoading || !userId || !canLoadAdminData) {
+    if (authLoading || !userId || !canViewAllSheets) {
       setUsers([]);
       setUsersLoading(false);
       return;
@@ -100,10 +105,10 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
     );
 
     return unsubscribe;
-  }, [authLoading, userId, canLoadAdminData]);
+  }, [authLoading, userId, canViewAllSheets]);
 
   const sheets = useMemo(() => {
-    if (!canLoadAdminData) return sheetsRaw;
+    if (!canViewAllSheets) return sheetsRaw;
 
     const usersMap = new Map(users.map((u) => [u.id, u]));
     return sheetsRaw.map((sheet) => {
@@ -115,7 +120,7 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
         userEmail: owner.email || sheet.userEmail,
       };
     });
-  }, [sheetsRaw, users, canLoadAdminData]);
+  }, [sheetsRaw, users, canViewAllSheets]);
 
   const stats = useMemo(() => computeStatsFromSheets(sheets), [sheets]);
 
@@ -128,7 +133,8 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
       usersLoading: usersLoading || authLoading,
       sheetsError,
       usersError,
-      isAdmin: canLoadAdminData,
+      canViewAllSheets,
+      isAdmin: canViewAllSheets,
     }),
     [
       sheets,
@@ -139,7 +145,7 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
       authLoading,
       sheetsError,
       usersError,
-      canLoadAdminData,
+      canViewAllSheets,
     ]
   );
 
@@ -159,11 +165,13 @@ function useFirestoreDataContext() {
 }
 
 export function useServiceSheets() {
-  const { sheets, sheetsLoading, sheetsError, isAdmin } = useFirestoreDataContext();
+  const { sheets, sheetsLoading, sheetsError, canViewAllSheets, isAdmin } =
+    useFirestoreDataContext();
   return {
     sheets,
     loading: sheetsLoading,
     error: sheetsError,
+    canViewAllSheets,
     isAdmin,
   };
 }
@@ -175,6 +183,7 @@ export function useServiceSheetStats() {
     sheets: ctx.sheets,
     loading: ctx.sheetsLoading,
     error: ctx.sheetsError,
+    canViewAllSheets: ctx.canViewAllSheets,
     isAdmin: ctx.isAdmin,
   };
 }

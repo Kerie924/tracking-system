@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
-import { MATERIAL_TYPES } from '@/types';
+import { MATERIAL_TYPES, getSheetStatus, type ServiceSheetStatus } from '@/types';
 import { useTranslation } from '@/contexts/LanguageContext';
-import { getMaterialLabel } from '@/i18n/translations';
+import { getMaterialLabel, getStatusLabel } from '@/i18n/translations';
 import type { MaterialType } from '@/types';
 
 export function MaterialBadge({ type }: { type: MaterialType | string }) {
@@ -19,6 +19,32 @@ export function MaterialBadge({ type }: { type: MaterialType | string }) {
       }}
     >
       {label}
+    </span>
+  );
+}
+
+const STATUS_STYLES: Record<ServiceSheetStatus, string> = {
+  draft: 'bg-surface-100 text-surface-700',
+  validated: 'bg-sky-50 text-sky-700',
+  authorized: 'bg-amber-50 text-amber-800',
+  completed: 'bg-emerald-50 text-emerald-700',
+};
+
+export function StatusBadge({
+  status,
+}: {
+  status?: ServiceSheetStatus | string | null;
+}) {
+  const { language } = useTranslation();
+  const normalized = getSheetStatus({ status: status as ServiceSheetStatus });
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+        STATUS_STYLES[normalized]
+      )}
+    >
+      {getStatusLabel(normalized, language)}
     </span>
   );
 }

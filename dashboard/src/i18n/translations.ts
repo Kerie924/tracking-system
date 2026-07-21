@@ -1,4 +1,5 @@
 import type { Language } from '@/types';
+import { canonicalUnitKey } from '@/types';
 
 export const translations = {
   en: {
@@ -57,6 +58,28 @@ export const translations = {
       addSheet: 'Add Service Sheet',
       saveError: 'Could not save service sheet',
       savedSheet: 'Service sheet saved successfully',
+      status: 'Status',
+      advanceStatus: 'Advance status',
+      completeSheet: 'Mark completed',
+      editSheet: 'Edit',
+      statusBlocked: 'Required fields missing for this step',
+      statusAdvanced: 'Status updated',
+      statuses: {
+        draft: 'Draft',
+        validated: 'Validated',
+        authorized: 'Authorized',
+        completed: 'Completed',
+      },
+      validationHints: {
+        operatorName: 'Operator name is required',
+        vehiclePlates: 'Vehicle plates are required',
+        sealNumber: 'Seal number is required',
+        materials: 'At least one material with quantity is required',
+        elaboro: 'Prepared by (Elaboró) is required',
+        responsableSup: 'Supervisor is required',
+        autoriza: 'Authorization is required',
+        recibio: 'Operator receipt signature is required',
+      },
     },
     materials: {
       PLAYO: 'Stretch film (Playo)',
@@ -64,6 +87,8 @@ export const translations = {
       RSU: 'RSU',
       TARIMAS: 'Pallets',
       TUBO_CARTON: 'Cardboard tube',
+      ORGANICOS: 'Organics',
+      CHATARRA: 'Scrap metal',
     },
     serviceSheetForm: {
       title: 'SERVICE SHEET',
@@ -76,8 +101,12 @@ export const translations = {
       code: 'CODE',
       materialCol: 'Material',
       quantityCol: 'Quantity',
-      unitCol: 'Unit of measure',
+      unitOfMeasureCol: 'Unit of measure',
+      unitCol: 'Unit',
+      kilogramsCol: 'Kilograms',
       other: 'Other',
+      selectUnit: 'Select unit',
+      kg: 'kg',
       operatorName: 'Operator name',
       operatorId: 'Identification ID',
       serviceClient: 'Service client',
@@ -87,6 +116,25 @@ export const translations = {
       warehouseEntryLabel: 'Date and time of warehouse entry:',
       warehouseExitLabel: 'Date and time of warehouse exit:',
       acceptedBy: 'Received by',
+    },
+    unitOfMeasureOptions: {
+      agranel: 'Bulk',
+      pacas: 'Bales',
+      gaylords: "Gaylord's",
+      barcinas: 'Barcinas',
+      piezas: 'Pieces',
+      otro: 'Other',
+    },
+    unitOptions: {
+      cajaseca: 'Dry box',
+      tolva30m3: 'Hopper 30m³',
+      remolque: 'Trailer',
+      torthon: 'Torthon',
+      cartucho: 'Cartridge',
+      olla17m3: 'Pot 17m³',
+      camioneta: 'Pickup',
+      tolva7m3: 'Hopper 7m³',
+      contenedorescgr: 'CGR Containers',
     },
     profile: {
       title: 'Profile',
@@ -109,11 +157,13 @@ export const translations = {
       email: 'Email',
       role: 'Role',
       created: 'Created',
-      admin: 'Admin',
-      user: 'Customer',
+      customer: 'Customer',
+      advisor: 'Advisor',
+      owner: 'Owner',
       updateRole: 'Update Role',
       saved: 'Role updated',
-      adminOnly: 'Admin access required',
+      ownerOnly: 'Owner access required',
+      adminOnly: 'Owner access required',
     },
     auth: {
       signIn: 'Sign In',
@@ -210,6 +260,28 @@ export const translations = {
       addSheet: 'Agregar Hoja de Servicio',
       saveError: 'No se pudo guardar la hoja de servicio',
       savedSheet: 'Hoja de servicio guardada correctamente',
+      status: 'Estado',
+      advanceStatus: 'Avanzar estado',
+      completeSheet: 'Marcar completada',
+      editSheet: 'Editar',
+      statusBlocked: 'Faltan campos requeridos para este paso',
+      statusAdvanced: 'Estado actualizado',
+      statuses: {
+        draft: 'Borrador',
+        validated: 'Validada',
+        authorized: 'Autorizada',
+        completed: 'Completada',
+      },
+      validationHints: {
+        operatorName: 'El nombre del operador es requerido',
+        vehiclePlates: 'Las placas del vehículo son requeridas',
+        sealNumber: 'El número de marchamo es requerido',
+        materials: 'Se requiere al menos un material con cantidad',
+        elaboro: 'Elaboró es requerido',
+        responsableSup: 'Responsable Sup. es requerido',
+        autoriza: 'Autoriza es requerido',
+        recibio: 'La firma de recibo del operador es requerida',
+      },
     },
     materials: {
       PLAYO: 'Playo',
@@ -217,6 +289,8 @@ export const translations = {
       RSU: 'RSU',
       TARIMAS: 'Tarima',
       TUBO_CARTON: 'Tubo de cartón',
+      ORGANICOS: 'Orgánicos',
+      CHATARRA: 'Chatarra',
     },
     serviceSheetForm: {
       title: 'HOJA DE SERVICIO',
@@ -229,8 +303,12 @@ export const translations = {
       code: 'CODIGO',
       materialCol: 'Material',
       quantityCol: 'Cantidad',
-      unitCol: 'Unidad de medida',
+      unitOfMeasureCol: 'Unidad de medida',
+      unitCol: 'Unidad',
+      kilogramsCol: 'Kilogramos',
       other: 'Otro',
+      selectUnit: 'Seleccionar unidad',
+      kg: 'kg',
       operatorName: 'Nombre del operador',
       operatorId: 'ID de identificación',
       serviceClient: 'Cliente de servicio',
@@ -240,6 +318,25 @@ export const translations = {
       warehouseEntryLabel: 'Fecha y hora de entrada a almacén:',
       warehouseExitLabel: 'Fecha y hora de salida a almacén:',
       acceptedBy: 'Recibe',
+    },
+    unitOfMeasureOptions: {
+      agranel: 'A granel',
+      pacas: 'Pacas',
+      gaylords: "Gaylord's",
+      barcinas: 'Barcinas',
+      piezas: 'Piezas',
+      otro: 'Otro',
+    },
+    unitOptions: {
+      cajaseca: 'Caja seca',
+      tolva30m3: 'Tolva 30m³',
+      remolque: 'Remolque',
+      torthon: 'Torthon',
+      cartucho: 'Cartucho',
+      olla17m3: 'Olla 17m³',
+      camioneta: 'Camioneta',
+      tolva7m3: 'Tolva 7m³',
+      contenedorescgr: 'Contenedores CGR',
     },
     profile: {
       title: 'Perfil',
@@ -262,11 +359,13 @@ export const translations = {
       email: 'Correo',
       role: 'Rol',
       created: 'Creado',
-      admin: 'Administrador',
-      user: 'Cliente',
+      customer: 'Cliente',
+      advisor: 'Asesor',
+      owner: 'Propietario',
       updateRole: 'Actualizar Rol',
       saved: 'Rol actualizado',
-      adminOnly: 'Se requiere acceso de administrador',
+      ownerOnly: 'Se requiere acceso de propietario',
+      adminOnly: 'Se requiere acceso de propietario',
     },
     auth: {
       signIn: 'Iniciar sesión',
@@ -319,7 +418,28 @@ export function getMaterialLabel(
   return (labels as Record<string, string>)[type] ?? type;
 }
 
+/** Localized label for unit-of-measure options (A granel, Pacas, …) */
+export function getUnitOfMeasureLabel(option: string, lang: Language): string {
+  const key = canonicalUnitKey(option);
+  const labels = translations[lang].unitOfMeasureOptions as Record<string, string>;
+  return labels[key] ?? option;
+}
+
+/** Localized label for container/unit dropdown options (Caja seca, Tolva, …) */
+export function getUnitLabel(option: string, lang: Language): string {
+  const key = canonicalUnitKey(option);
+  const labels = translations[lang].unitOptions as Record<string, string>;
+  return labels[key] ?? option;
+}
+
 export function getRoleLabel(role: string, lang: Language): string {
-  if (role === 'admin') return translations[lang].users.admin;
-  return translations[lang].users.user;
+  const labels = translations[lang].users as Record<string, string>;
+  if (role === 'admin') return labels.owner;
+  if (role === 'user') return labels.customer;
+  return labels[role] ?? role;
+}
+
+export function getStatusLabel(status: string, lang: Language): string {
+  const labels = translations[lang].serviceSheet.statuses as Record<string, string>;
+  return labels[status] ?? status;
 }

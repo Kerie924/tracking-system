@@ -39,12 +39,20 @@ const v1_1 = require("firebase-functions/v1");
 const https_1 = require("firebase-functions/v2/https");
 admin.initializeApp();
 const USERS_COLLECTION = 'users';
-async function callerIsAdmin(uid) {
+function normalizeRole(role) {
+    if (role === 'owner' || role === 'advisor' || role === 'customer')
+        return role;
+    if (role === 'admin' || role == null)
+        return 'owner';
+    if (role === 'user')
+        return 'customer';
+    return 'customer';
+}
+async function callerIsOwner(uid) {
     const doc = await admin.firestore().collection(USERS_COLLECTION).doc(uid).get();
     if (!doc.exists)
         return false;
-    const role = doc.data()?.role;
-    return role === 'admin' || role == null;
+    return normalizeRole(doc.data()?.role) === 'owner';
 }
 async function upsertAuthUser(authUser) {
     const ref = admin.firestore().collection(USERS_COLLECTION).doc(authUser.uid);
@@ -66,11 +74,15 @@ async function upsertAuthUser(authUser) {
     if (!existing.exists) {
         await ref.set({
             ...patch,
-            role: 'user',
+            role: 'customer',
             language: 'es',
             createdAt: new Date().toISOString(),
         });
         return;
+    }
+    // Migrate legacy roles on sync
+    if (existingData.role === 'admin' || existingData.role === 'user' || existingData.role == null) {
+        patch.role = normalizeRole(existingData.role);
     }
     await ref.set(patch, { merge: true });
 }
@@ -84,13 +96,13 @@ async function listAllAuthUsers() {
     } while (nextPageToken);
     return users;
 }
-/** Sync every Firebase Authentication user into Firestore /users (admin only). */
+/** Sync every Firebase Authentication user into Firestore /users (owner only). */
 exports.syncAuthUsers = (0, https_1.onCall)(async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'Sign in required.');
     }
-    if (!(await callerIsAdmin(request.auth.uid))) {
-        throw new https_1.HttpsError('permission-denied', 'Admin access required.');
+    if (!(await callerIsOwner(request.auth.uid))) {
+        throw new https_1.HttpsError('permission-denied', 'Owner access required.');
     }
     const authUsers = await listAllAuthUsers();
     await Promise.all(authUsers.map((user) => upsertAuthUser(user)));

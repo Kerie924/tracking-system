@@ -18,7 +18,7 @@ import { FileText, Package, MapPin, Users, Calendar } from 'lucide-react';
 
 export function DashboardPage() {
   const { t, language, locale } = useTranslation();
-  const { stats, sheets, loading, error, isAdmin } = useServiceSheetStats();
+  const { stats, sheets, loading, error, canViewAllSheets } = useServiceSheetStats();
   const { data: trends } = useTrends(7);
   const [selected, setSelected] = useState<ServiceSheet | null>(null);
 
@@ -51,7 +51,7 @@ export function DashboardPage() {
       </div>
 
       <div
-        className={`mb-6 grid grid-cols-1 gap-4 sm:mb-8 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 ${isAdmin ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}
+        className={`mb-6 grid grid-cols-1 gap-4 sm:mb-8 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 ${canViewAllSheets ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}
       >
         <KpiCard
           title={t.dashboard.sheetsToday}
@@ -77,7 +77,7 @@ export function DashboardPage() {
           icon={MapPin}
           color="amber"
         />
-        {isAdmin && (
+        {canViewAllSheets && (
           <KpiCard
             title={t.dashboard.activeUsers}
             value={formatNumber(stats.activeUsers, locale)}
