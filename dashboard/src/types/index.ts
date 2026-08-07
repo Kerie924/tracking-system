@@ -7,7 +7,13 @@ export type MaterialType =
   | 'ORGANICOS'
   | 'CHATARRA';
 
-export type UserRole = 'customer' | 'advisor' | 'owner';
+export type UserRole =
+  | 'elaboro'
+  | 'supervisor'
+  | 'owner'
+  | 'cliente'
+  | 'operador'
+  | 'meli';
 
 export type ServiceSheetStatus =
   | 'draft'
@@ -15,14 +21,16 @@ export type ServiceSheetStatus =
   | 'authorized'
   | 'completed';
 
+export type RoleChangeRequestStatus = 'pending' | 'approved' | 'rejected';
+
 export type Language = 'en' | 'es';
 
 export interface ServiceSheetMaterial {
   materialType: MaterialType | string;
   quantity: number;
-  /** Unit of measure (A granel, Pacas, Piezas, …) */
+  /** Unit of measure — stored in Firestore as `unit` (e.g. bulk) */
   unitOfMeasure?: string;
-  /** Container / vehicle unit (Caja seca, Tolva 30m³, …) */
+  /** @deprecated Prefer sheet.packagingType; kept for legacy docs */
   unit?: string;
   kilograms?: number;
   selected?: boolean;
@@ -38,6 +46,11 @@ export interface ServiceSheet {
   fecha: string;
   createdAt: string;
   status?: ServiceSheetStatus;
+  createdBy?: string;
+  createdByName?: string;
+  /** Container / vehicle packaging — Firestore `packagingType` (e.g. dryBox) */
+  packagingType?: string;
+  operatorId?: string;
   autoriza?: string;
   elaboro?: string;
   entrega?: string;
@@ -57,6 +70,18 @@ export interface ServiceSheet {
   siteExitTime?: string;
   warehouseEntryTime?: string;
   warehouseExitTime?: string;
+  elaboroSignedAt?: string;
+  supervisorSignedAt?: string;
+  supervisorUserId?: string;
+  meliSignedAt?: string;
+  meliUserId?: string;
+  operadorSignedAt?: string;
+  operadorUserId?: string;
+  clienteSignedAt?: string;
+  clienteUserId?: string;
+  process2CompletedAt?: string;
+  process2CompletedBy?: string;
+  process2CompletedByName?: string;
   materials: ServiceSheetMaterial[];
 }
 
@@ -67,6 +92,20 @@ export interface UserProfile {
   role: UserRole;
   language: Language;
   createdAt: string;
+}
+
+export interface RoleChangeRequest {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  currentRole: UserRole | string;
+  requestedRole: UserRole | string;
+  status: RoleChangeRequestStatus;
+  createdAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  reviewedByName?: string;
 }
 
 export interface DashboardStats {
@@ -109,7 +148,14 @@ const MATERIAL_ALIASES: Record<string, MaterialType> = {
   BASURA: 'RSU',
 };
 
-export const USER_ROLES: UserRole[] = ['customer', 'advisor', 'owner'];
+export const USER_ROLES: UserRole[] = [
+  'elaboro',
+  'supervisor',
+  'owner',
+  'cliente',
+  'operador',
+  'meli',
+];
 
 export const SERVICE_SHEET_STATUSES: ServiceSheetStatus[] = [
   'draft',
@@ -118,14 +164,29 @@ export const SERVICE_SHEET_STATUSES: ServiceSheetStatus[] = [
   'completed',
 ];
 
-/** Migrates legacy admin/user (and null-as-admin) roles to the new model. */
+const LEGACY_ROLES = new Set(['admin', 'user', 'customer', 'advisor']);
+
+/** Maps Firestore / legacy roles onto the dashboard role model. */
 export function normalizeUserRole(role: unknown): UserRole {
-  if (role === 'owner' || role === 'advisor' || role === 'customer') return role;
+  if (
+    role === 'elaboro' ||
+    role === 'supervisor' ||
+    role === 'owner' ||
+    role === 'cliente' ||
+    role === 'operador' ||
+    role === 'meli'
+  ) {
+    return role;
+  }
+  if (role === 'advisor') return 'supervisor';
   if (role === 'admin') return 'owner';
-  if (role === 'user') return 'customer';
-  // Legacy docs with missing role were treated as admin
-  if (role == null || role === '') return 'owner';
-  return 'customer';
+  if (role === 'customer' || role === 'user') return 'elaboro';
+  if (role == null || role === '') return 'elaboro';
+  return 'elaboro';
+}
+
+export function isLegacyRole(role: unknown): boolean {
+  return typeof role === 'string' && LEGACY_ROLES.has(role);
 }
 
 export function normalizeSheetStatus(status: unknown): ServiceSheetStatus {
@@ -144,28 +205,40 @@ export function getSheetStatus(sheet: Pick<ServiceSheet, 'status'>): ServiceShee
   return normalizeSheetStatus(sheet.status);
 }
 
+/** Owner of the sheet for access checks (createdBy preferred). */
+export function getSheetOwnerId(sheet: Pick<ServiceSheet, 'userId' | 'createdBy'>): string {
+  return sheet.createdBy || sheet.userId;
+}
+
 export function canViewAllSheets(role: UserRole): boolean {
-  return role === 'advisor' || role === 'owner';
+  return role === 'supervisor' || role === 'owner' || role === 'meli';
 }
 
 export function canManageUsers(role: UserRole): boolean {
   return role === 'owner';
 }
 
+export function canReviewRoleRequests(role: UserRole): boolean {
+  return role === 'owner' || role === 'supervisor';
+}
+
 export function canCreateServiceSheet(role: UserRole): boolean {
-  return role === 'customer' || role === 'advisor' || role === 'owner';
+  return role === 'elaboro' || role === 'supervisor' || role === 'owner';
 }
 
 export function canEditSheet(
   role: UserRole,
-  sheet: Pick<ServiceSheet, 'userId' | 'status'>,
+  sheet: Pick<ServiceSheet, 'userId' | 'createdBy' | 'status'>,
   userId: string
 ): boolean {
   const status = getSheetStatus(sheet);
+  const ownerId = getSheetOwnerId(sheet);
   if (role === 'owner') return status !== 'completed';
-  if (role === 'advisor') return status === 'draft' || status === 'validated';
-  if (role === 'customer') {
-    return sheet.userId === userId && status === 'draft';
+  if (role === 'supervisor' || role === 'meli') {
+    return status === 'draft' || status === 'validated';
+  }
+  if (role === 'elaboro' || role === 'cliente' || role === 'operador') {
+    return ownerId === userId && status === 'draft';
   }
   return false;
 }
@@ -181,7 +254,7 @@ export function getNextSheetStatus(
 
 export function canAdvanceSheetStatus(
   role: UserRole,
-  sheet: Pick<ServiceSheet, 'userId' | 'status'>,
+  sheet: Pick<ServiceSheet, 'userId' | 'createdBy' | 'status'>,
   _userId: string,
   nextStatus: ServiceSheetStatus
 ): boolean {
@@ -189,13 +262,13 @@ export function canAdvanceSheetStatus(
   if (getNextSheetStatus(current) !== nextStatus) return false;
 
   if (nextStatus === 'validated') {
-    return role === 'owner' || role === 'advisor';
+    return role === 'owner' || role === 'supervisor';
   }
   if (nextStatus === 'authorized') {
-    return role === 'owner';
+    return role === 'owner' || role === 'meli';
   }
   if (nextStatus === 'completed') {
-    return role === 'owner';
+    return role === 'owner' || role === 'supervisor';
   }
   return false;
 }
@@ -363,13 +436,34 @@ export function getMaterialDetailsMap(
     if (m.unitOfMeasure) {
       map[key].unitOfMeasure = map[key].unitOfMeasure ?? m.unitOfMeasure;
     }
-    const unit = extractContainerUnit(m);
-    if (unit && !map[key].units.includes(unit)) {
-      map[key].units.push(unit);
-      map[key].unit = map[key].unit ?? unit;
+    // Mobile stores measure in `unit`; legacy may still use unitOfMeasure
+    if (!map[key].unitOfMeasure && m.unit) {
+      if (matchesAnyUnitOption(m.unit, ALL_UNIT_OF_MEASURE_OPTIONS)) {
+        map[key].unitOfMeasure = m.unit;
+      }
+    }
+    const container = extractContainerUnit(m);
+    if (
+      container &&
+      !matchesAnyUnitOption(container, ALL_UNIT_OF_MEASURE_OPTIONS) &&
+      !map[key].units.includes(container)
+    ) {
+      map[key].units.push(container);
+      map[key].unit = map[key].unit ?? container;
     }
     if (typeof m.kilograms === 'number' && Number.isFinite(m.kilograms)) {
       map[key].kilograms = (map[key].kilograms ?? 0) + m.kilograms;
+    }
+  }
+
+  // Sheet-level packagingType (e.g. dryBox) applies to selected materials
+  if (sheet.packagingType) {
+    for (const key of Object.keys(map) as MaterialType[]) {
+      if (!map[key].matched) continue;
+      if (!map[key].units.includes(sheet.packagingType)) {
+        map[key].units.push(sheet.packagingType);
+      }
+      map[key].unit = map[key].unit ?? sheet.packagingType;
     }
   }
 
@@ -490,13 +584,22 @@ export function canonicalUnitKey(value: string): string {
   if (!label) return '';
 
   if (['bales', 'bale', 'pacas', 'paca'].includes(label)) return 'pacas';
-  if (label === 'cajaseca' || label === 'caja seca') return 'cajaseca';
+  if (
+    label === 'cajaseca' ||
+    label === 'caja seca' ||
+    label === 'drybox' ||
+    label === 'dry box'
+  ) {
+    return 'cajaseca';
+  }
   if (label.includes('gaylord')) return 'gaylords';
   if (['remolque', 'trailer'].includes(label)) return 'remolque';
   if (['barcinas', 'barcina'].includes(label)) return 'barcinas';
   if (['cartucho', 'cartridge'].includes(label)) return 'cartucho';
   if (['otro', 'other'].includes(label)) return 'otro';
-  if (['a granel', 'agranel', 'granel', 'bulk'].includes(label)) return 'agranel';
+  if (['a granel', 'agranel', 'granel', 'bulk', 'a_granel'].includes(label)) {
+    return 'agranel';
+  }
   if (['torthon', 'torton'].includes(label)) return 'torthon';
   if (label === 'olla 17m3' || label === 'olla17m3') return 'olla17m3';
   if (['camioneta', 'pickup'].includes(label)) return 'camioneta';
@@ -629,24 +732,62 @@ export function isKnownMaterialType(type: string): type is MaterialType {
   return normalizeMaterialType(type) !== null;
 }
 
-export function unitOptionToFirestoreCode(option: string): string {
+/** Unit-of-measure codes as stored by the mobile app (`materials[].unit`). */
+export function unitOfMeasureToFirestoreCode(option: string): string {
   const key = canonicalUnitKey(option);
   const codes: Record<string, string> = {
     pacas: 'bales',
-    cajaseca: 'caja_seca',
     gaylords: 'gaylords',
-    remolque: 'remolque',
+    barcinas: 'barcinas',
+    otro: 'otro',
+    piezas: 'pieces',
+    agranel: 'bulk',
+  };
+  return codes[key] ?? key.replace(/\s/g, '');
+}
+
+/** Packaging / container codes as stored by the mobile app (`packagingType`). */
+export function packagingOptionToFirestoreCode(option: string): string {
+  const key = canonicalUnitKey(option);
+  const codes: Record<string, string> = {
+    cajaseca: 'dryBox',
+    remolque: 'trailer',
+    tolva30m3: 'tolva30',
+    tolva7m3: 'tolva7',
+    torthon: 'torthon',
+    cartucho: 'cartucho',
+    olla17m3: 'olla17',
+    camioneta: 'camioneta',
+    contenedorescgr: 'contenedoresCgr',
+  };
+  return codes[key] ?? key.replace(/\s/g, '');
+}
+
+/** @deprecated Prefer unitOfMeasureToFirestoreCode / packagingOptionToFirestoreCode */
+export function unitOptionToFirestoreCode(option: string): string {
+  const key = canonicalUnitKey(option);
+  if (matchesAnyUnitOption(option, ALL_UNIT_OF_MEASURE_OPTIONS)) {
+    return unitOfMeasureToFirestoreCode(option);
+  }
+  if (matchesAnyUnitOption(option, SERVICE_SHEET_UNIT_OPTIONS)) {
+    return packagingOptionToFirestoreCode(option);
+  }
+  const codes: Record<string, string> = {
+    pacas: 'bales',
+    cajaseca: 'dryBox',
+    gaylords: 'gaylords',
+    remolque: 'trailer',
     barcinas: 'barcinas',
     cartucho: 'cartucho',
     otro: 'otro',
     tolva30m3: 'tolva30',
     tolva7m3: 'tolva7',
-    piezas: 'piezas',
-    agranel: 'a_granel',
+    piezas: 'pieces',
+    agranel: 'bulk',
     torthon: 'torthon',
     olla17m3: 'olla17',
     camioneta: 'camioneta',
-    contenedorescgr: 'contenedores_cgr',
+    contenedorescgr: 'contenedoresCgr',
   };
   return codes[key] ?? key.replace(/\s/g, '');
 }
@@ -657,16 +798,20 @@ export function createEmptyServiceSheet(
   userEmail?: string
 ): ServiceSheet {
   const today = new Date().toISOString().split('T')[0];
+  const now = new Date().toISOString();
   return {
     id: '',
     userId,
     userName,
     userEmail,
+    createdBy: userId,
+    createdByName: userName,
     folio: '',
     codigo: '',
     fecha: today,
-    createdAt: new Date().toISOString(),
+    createdAt: now,
     status: 'draft',
+    source: 'manual',
     materials: [],
   };
 }
@@ -710,26 +855,38 @@ export function updateSheetMaterialQuantity(
   return upsertMaterial(sheet, materialType, { quantity });
 }
 
-/** Updates unit of measure (A granel, Pacas, Piezas, …) */
+/** Updates unit of measure — stored on material as Firestore `unit`. */
 export function updateSheetMaterialUnitOfMeasure(
   sheet: ServiceSheet,
   materialType: MaterialType,
   unitOption: string
 ): ServiceSheet {
+  const code = unitOfMeasureToFirestoreCode(unitOption);
   return upsertMaterial(sheet, materialType, {
-    unitOfMeasure: unitOptionToFirestoreCode(unitOption),
+    unitOfMeasure: code,
+    unit: code,
   });
 }
 
-/** Updates container / vehicle unit (Caja seca, Tolva, …) */
+/** Updates sheet-level packagingType (Caja seca / dryBox, …). */
+export function updateSheetPackagingType(
+  sheet: ServiceSheet,
+  unitOption: string
+): ServiceSheet {
+  return {
+    ...sheet,
+    packagingType: packagingOptionToFirestoreCode(unitOption),
+  };
+}
+
+/** @deprecated Prefer updateSheetPackagingType — kept for call-site compat */
 export function updateSheetMaterialUnit(
   sheet: ServiceSheet,
   materialType: MaterialType,
   unitOption: string
 ): ServiceSheet {
-  return upsertMaterial(sheet, materialType, {
-    unit: unitOptionToFirestoreCode(unitOption),
-  });
+  void materialType;
+  return updateSheetPackagingType(sheet, unitOption);
 }
 
 export function updateSheetMaterialKilograms(

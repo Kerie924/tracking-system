@@ -14,6 +14,7 @@ import { DEV_ALL_OWNER } from '@/lib/config';
 import {
   canCreateServiceSheet,
   canManageUsers,
+  canReviewRoleRequests,
   canViewAllSheets,
   normalizeUserRole,
   type UserProfile,
@@ -26,13 +27,18 @@ interface AuthContextValue {
   loading: boolean;
   role: UserRole;
   isOwner: boolean;
-  isAdvisor: boolean;
-  isCustomer: boolean;
+  isSupervisor: boolean;
+  isElaboro: boolean;
   canManageUsers: boolean;
   canViewAllSheets: boolean;
   canCreateSheets: boolean;
+  canReviewRoleRequests: boolean;
   /** @deprecated Use isOwner / canManageUsers */
   isAdmin: boolean;
+  /** @deprecated Use isSupervisor */
+  isAdvisor: boolean;
+  /** @deprecated Use isElaboro */
+  isCustomer: boolean;
   oauthError: string | null;
   clearOauthError: () => void;
   refreshProfile: () => Promise<void>;
@@ -42,14 +48,17 @@ const AuthContext = createContext<AuthContextValue>({
   user: null,
   profile: null,
   loading: true,
-  role: 'customer',
+  role: 'elaboro',
   isOwner: false,
-  isAdvisor: false,
-  isCustomer: true,
+  isSupervisor: false,
+  isElaboro: true,
   canManageUsers: false,
   canViewAllSheets: false,
   canCreateSheets: true,
+  canReviewRoleRequests: false,
   isAdmin: false,
+  isAdvisor: false,
+  isCustomer: true,
   oauthError: null,
   clearOauthError: () => {},
   refreshProfile: async () => {},
@@ -109,11 +118,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ? 'owner'
     : profile
       ? normalizeUserRole(profile.role)
-      : 'customer';
+      : 'elaboro';
 
   const isOwner = role === 'owner';
-  const isAdvisor = role === 'advisor';
-  const isCustomer = role === 'customer';
+  const isSupervisor = role === 'supervisor';
+  const isElaboro = role === 'elaboro';
 
   return (
     <AuthContext.Provider
@@ -123,12 +132,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         role,
         isOwner,
-        isAdvisor,
-        isCustomer,
+        isSupervisor,
+        isElaboro,
         canManageUsers: canManageUsers(role),
         canViewAllSheets: canViewAllSheets(role),
         canCreateSheets: canCreateServiceSheet(role),
+        canReviewRoleRequests: canReviewRoleRequests(role),
         isAdmin: canManageUsers(role),
+        isAdvisor: isSupervisor || role === 'meli',
+        isCustomer: isElaboro || role === 'cliente' || role === 'operador',
         oauthError,
         clearOauthError,
         refreshProfile,

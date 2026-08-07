@@ -14,8 +14,8 @@ import {
   toggleSheetMaterial,
   updateSheetMaterialKilograms,
   updateSheetMaterialQuantity,
-  updateSheetMaterialUnit,
   updateSheetMaterialUnitOfMeasure,
+  updateSheetPackagingType,
   type MaterialType,
   type ServiceSheet,
 } from '@/types';
@@ -282,9 +282,9 @@ export function ServiceSheetFormView({
     onChange(updateSheetMaterialUnitOfMeasure(sheet, materialType, unitOption));
   };
 
-  const handleUnitSelect = (materialType: MaterialType, unitOption: string) => {
+  const handleUnitSelect = (_materialType: MaterialType, unitOption: string) => {
     if (!editable || !onChange) return;
-    onChange(updateSheetMaterialUnit(sheet, materialType, unitOption));
+    onChange(updateSheetPackagingType(sheet, unitOption));
   };
 
   const handleKilogramsChange = (materialType: MaterialType, raw: string) => {
@@ -396,7 +396,9 @@ export function ServiceSheetFormView({
 
         {SERVICE_SHEET_MATERIAL_ROWS.map((row, index) => {
           const entry = materialDetails[row.id];
-          const selectedUnit = resolveSelectedUnitOption(entry.unit);
+          const selectedUnit = resolveSelectedUnitOption(
+            sheet.packagingType ?? entry.unit
+          );
           return (
             <div
               key={row.id}
@@ -558,7 +560,7 @@ export function ServiceSheetFormView({
         <div className="grid grid-cols-2 sm:grid-cols-5">
           {[
             { label: t.serviceSheetForm.operatorName, field: 'operatorName' as const, value: sheet.operatorName },
-            { label: t.serviceSheetForm.operatorId, field: 'siteId' as const, value: sheet.siteId },
+            { label: t.serviceSheetForm.operatorId, field: 'operatorId' as const, value: sheet.operatorId },
             { label: t.serviceSheet.vehicle, field: 'vehiclePlates' as const, value: sheet.vehiclePlates },
             { label: t.serviceSheet.trailer, field: 'trailerPlates' as const, value: sheet.trailerPlates },
             { label: t.serviceSheet.seal, field: 'sealNumber' as const, value: sheet.sealNumber },

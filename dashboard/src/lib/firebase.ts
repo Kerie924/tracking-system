@@ -20,6 +20,7 @@ export const firestore = getFirestore(app);
 export const FIRESTORE_USERS_COLLECTION = 'users';
 export const FIRESTORE_SERVICE_SHEETS_COLLECTION = 'serviceSheets';
 export const FIRESTORE_CHECKINS_COLLECTION = 'checkins';
+export const FIRESTORE_ROLE_CHANGE_REQUESTS_COLLECTION = 'roleChangeRequests';
 
 if (typeof window !== 'undefined') {
   import('firebase/analytics')

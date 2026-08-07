@@ -12,34 +12,56 @@ import {
   firestore,
   FIRESTORE_USERS_COLLECTION,
   FIRESTORE_SERVICE_SHEETS_COLLECTION,
+  FIRESTORE_ROLE_CHANGE_REQUESTS_COLLECTION,
 } from '@/lib/firebase';
 import { DEV_ALL_OWNER } from '@/lib/config';
-import type { ServiceSheet, UserProfile, UserRole, Language, ServiceSheetStatus } from '@/types';
+import type {
+  ServiceSheet,
+  UserProfile,
+  UserRole,
+  Language,
+  ServiceSheetStatus,
+  RoleChangeRequest,
+  RoleChangeRequestStatus,
+} from '@/types';
 import {
   createEmptyMaterialMap,
+  isLegacyRole,
   normalizeMaterialType,
   normalizeSheetStatus,
   normalizeUserRole,
   parseServiceSheetMaterials,
+  unitOfMeasureToFirestoreCode,
 } from '@/types';
 
 function parseServiceSheet(
   docId: string,
   data: DocumentData,
-  userId: string,
+  pathUserId: string,
   userName?: string,
   userEmail?: string
 ): ServiceSheet {
+  const createdBy =
+    typeof data.createdBy === 'string' && data.createdBy
+      ? data.createdBy
+      : pathUserId;
+  const createdByName =
+    typeof data.createdByName === 'string' ? data.createdByName : userName;
+
   return {
-    id: docId,
-    userId,
-    userName,
+    id: typeof data.id === 'string' && data.id ? data.id : docId,
+    userId: createdBy,
+    userName: createdByName ?? userName,
     userEmail,
     folio: data.folio ?? '',
     codigo: data.codigo ?? '',
     fecha: data.fecha ?? '',
     createdAt: data.createdAt ?? '',
     status: normalizeSheetStatus(data.status),
+    createdBy,
+    createdByName,
+    packagingType: data.packagingType,
+    operatorId: data.operatorId,
     autoriza: data.autoriza,
     elaboro: data.elaboro,
     entrega: data.entrega,
@@ -59,6 +81,18 @@ function parseServiceSheet(
     siteExitTime: data.siteExitTime,
     warehouseEntryTime: data.warehouseEntryTime,
     warehouseExitTime: data.warehouseExitTime,
+    elaboroSignedAt: data.elaboroSignedAt,
+    supervisorSignedAt: data.supervisorSignedAt,
+    supervisorUserId: data.supervisorUserId,
+    meliSignedAt: data.meliSignedAt,
+    meliUserId: data.meliUserId,
+    operadorSignedAt: data.operadorSignedAt,
+    operadorUserId: data.operadorUserId,
+    clienteSignedAt: data.clienteSignedAt,
+    clienteUserId: data.clienteUserId,
+    process2CompletedAt: data.process2CompletedAt,
+    process2CompletedBy: data.process2CompletedBy,
+    process2CompletedByName: data.process2CompletedByName,
     materials: parseServiceSheetMaterials(data.materials),
   };
 }
@@ -186,8 +220,7 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   if (!snap.exists()) return null;
   const data = snap.data();
   const role = normalizeUserRole(data.role);
-  // Persist migrated role when legacy values are found
-  if (data.role !== role) {
+  if (isLegacyRole(data.role)) {
     await setDoc(userDocRef(uid), { role }, { merge: true });
   }
   return {
@@ -212,7 +245,7 @@ export async function ensureUserProfile(
     const profile: Omit<UserProfile, 'id'> = {
       name: displayName || email.split('@')[0],
       email,
-      role: 'customer',
+      role: 'elaboro',
       language: 'es',
       createdAt: new Date().toISOString(),
     };
@@ -223,8 +256,7 @@ export async function ensureUserProfile(
   const data = snap.data();
   const updates: Record<string, string> = {};
   const role = normalizeUserRole(data.role);
-  if (data.role !== role) updates.role = role;
-  if (!data.role) updates.role = role;
+  if (isLegacyRole(data.role) || !data.role) updates.role = role;
   if (!data.language) updates.language = 'es';
   if (!data.email) updates.email = email;
   if (!data.name && displayName) updates.name = displayName;
@@ -358,22 +390,27 @@ function serviceSheetsCollectionRef(userId: string) {
 export function serviceSheetToFirestorePayload(
   sheet: ServiceSheet
 ): DocumentData {
+  const createdBy = sheet.createdBy || sheet.userId;
   const payload: DocumentData = {
     folio: sheet.folio,
     codigo: sheet.codigo,
     fecha: sheet.fecha,
     createdAt: sheet.createdAt || new Date().toISOString(),
     status: (sheet.status ?? 'draft') as ServiceSheetStatus,
+    createdBy,
     materials: sheet.materials
       .map((m) => {
         const materialType = normalizeMaterialType(String(m.materialType));
         if (!materialType) return null;
+        const measure =
+          m.unitOfMeasure ||
+          (m.unit ? unitOfMeasureToFirestoreCode(m.unit) : undefined);
         const entry: DocumentData = {
           materialType,
           quantity: m.quantity || 0,
         };
-        if (m.unitOfMeasure) entry.unitOfMeasure = m.unitOfMeasure;
-        if (m.unit) entry.unit = m.unit;
+        // Mobile schema stores unit-of-measure in `unit`
+        if (measure) entry.unit = measure;
         if (m.kilograms != null && Number.isFinite(m.kilograms)) {
           entry.kilograms = m.kilograms;
         }
@@ -381,6 +418,10 @@ export function serviceSheetToFirestorePayload(
       })
       .filter(Boolean),
   };
+
+  if (sheet.id) payload.id = sheet.id;
+  if (sheet.createdByName) payload.createdByName = sheet.createdByName;
+  if (sheet.packagingType) payload.packagingType = sheet.packagingType;
 
   const optionalFields = [
     'autoriza',
@@ -390,6 +431,7 @@ export function serviceSheetToFirestorePayload(
     'recibio',
     'responsableSup',
     'operatorName',
+    'operatorId',
     'sealNumber',
     'siteId',
     'siteName',
@@ -400,6 +442,18 @@ export function serviceSheetToFirestorePayload(
     'siteExitTime',
     'warehouseEntryTime',
     'warehouseExitTime',
+    'elaboroSignedAt',
+    'supervisorSignedAt',
+    'supervisorUserId',
+    'meliSignedAt',
+    'meliUserId',
+    'operadorSignedAt',
+    'operadorUserId',
+    'clienteSignedAt',
+    'clienteUserId',
+    'process2CompletedAt',
+    'process2CompletedBy',
+    'process2CompletedByName',
   ] as const;
 
   for (const field of optionalFields) {
@@ -420,7 +474,12 @@ export async function createServiceSheet(
   sheet: ServiceSheet
 ): Promise<string> {
   const docRef = doc(serviceSheetsCollectionRef(userId));
-  await setDoc(docRef, serviceSheetToFirestorePayload(sheet));
+  const payload = serviceSheetToFirestorePayload({
+    ...sheet,
+    id: sheet.id || docRef.id,
+    createdBy: sheet.createdBy || userId,
+  });
+  await setDoc(docRef, payload);
   return docRef.id;
 }
 
@@ -431,7 +490,82 @@ export async function updateServiceSheet(
 ): Promise<void> {
   await setDoc(
     serviceSheetDocRef(userId, sheetId),
-    serviceSheetToFirestorePayload(sheet),
+    serviceSheetToFirestorePayload({ ...sheet, id: sheetId }),
     { merge: true }
   );
+}
+
+function parseRoleChangeRequest(
+  docId: string,
+  data: DocumentData
+): RoleChangeRequest {
+  const status = data.status;
+  const normalizedStatus: RoleChangeRequestStatus =
+    status === 'approved' || status === 'rejected' || status === 'pending'
+      ? status
+      : 'pending';
+
+  return {
+    id: typeof data.id === 'string' && data.id ? data.id : docId,
+    userId: data.userId ?? '',
+    userName: data.userName,
+    userEmail: data.userEmail,
+    currentRole: data.currentRole ?? '',
+    requestedRole: data.requestedRole ?? '',
+    status: normalizedStatus,
+    createdAt: data.createdAt ?? '',
+    reviewedAt: data.reviewedAt,
+    reviewedBy: data.reviewedBy,
+    reviewedByName: data.reviewedByName,
+  };
+}
+
+export function subscribeToRoleChangeRequests(
+  onData: (requests: RoleChangeRequest[]) => void,
+  onError?: (error: Error) => void
+) {
+  return onSnapshot(
+    collection(firestore, FIRESTORE_ROLE_CHANGE_REQUESTS_COLLECTION),
+    (snapshot) => {
+      const requests = snapshot.docs.map((d) =>
+        parseRoleChangeRequest(d.id, d.data())
+      );
+      requests.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      onData(requests);
+    },
+    (err) => onError?.(err)
+  );
+}
+
+export async function reviewRoleChangeRequest(
+  requestId: string,
+  decision: 'approved' | 'rejected',
+  reviewer: { uid: string; name?: string }
+): Promise<void> {
+  const ref = doc(
+    firestore,
+    FIRESTORE_ROLE_CHANGE_REQUESTS_COLLECTION,
+    requestId
+  );
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Role change request not found');
+  const data = snap.data();
+  const now = new Date().toISOString();
+
+  await updateDoc(ref, {
+    status: decision,
+    reviewedAt: now,
+    reviewedBy: reviewer.uid,
+    reviewedByName: reviewer.name ?? '',
+  });
+
+  if (decision === 'approved' && data.userId && data.requestedRole) {
+    await updateUserRole(
+      data.userId,
+      normalizeUserRole(data.requestedRole)
+    );
+  }
 }

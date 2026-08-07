@@ -157,13 +157,25 @@ export const translations = {
       email: 'Email',
       role: 'Role',
       created: 'Created',
-      customer: 'Customer',
-      advisor: 'Advisor',
+      elaboro: 'Elaboro',
+      supervisor: 'Supervisor',
       owner: 'Owner',
+      cliente: 'Client',
+      operador: 'Operator',
+      meli: 'Meli',
+      customer: 'Elaboro',
+      advisor: 'Supervisor',
       updateRole: 'Update Role',
       saved: 'Role updated',
       ownerOnly: 'Owner access required',
       adminOnly: 'Owner access required',
+      roleRequests: 'Role change requests',
+      requestedRole: 'Requested',
+      currentRole: 'Current',
+      approve: 'Approve',
+      reject: 'Reject',
+      noRequests: 'No role change requests',
+      requestStatus: 'Request status',
     },
     auth: {
       signIn: 'Sign In',
@@ -359,13 +371,25 @@ export const translations = {
       email: 'Correo',
       role: 'Rol',
       created: 'Creado',
-      customer: 'Cliente',
-      advisor: 'Asesor',
+      elaboro: 'Elaboró',
+      supervisor: 'Supervisor',
       owner: 'Propietario',
+      cliente: 'Cliente',
+      operador: 'Operador',
+      meli: 'Meli',
+      customer: 'Elaboró',
+      advisor: 'Supervisor',
       updateRole: 'Actualizar Rol',
       saved: 'Rol actualizado',
       ownerOnly: 'Se requiere acceso de propietario',
       adminOnly: 'Se requiere acceso de propietario',
+      roleRequests: 'Solicitudes de cambio de rol',
+      requestedRole: 'Solicitado',
+      currentRole: 'Actual',
+      approve: 'Aprobar',
+      reject: 'Rechazar',
+      noRequests: 'No hay solicitudes de cambio de rol',
+      requestStatus: 'Estado de solicitud',
     },
     auth: {
       signIn: 'Iniciar sesión',
@@ -435,7 +459,8 @@ export function getUnitLabel(option: string, lang: Language): string {
 export function getRoleLabel(role: string, lang: Language): string {
   const labels = translations[lang].users as Record<string, string>;
   if (role === 'admin') return labels.owner;
-  if (role === 'user') return labels.customer;
+  if (role === 'user' || role === 'customer') return labels.elaboro;
+  if (role === 'advisor') return labels.supervisor;
   return labels[role] ?? role;
 }
 

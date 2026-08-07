@@ -12,7 +12,9 @@ service cloud.firestore {
     function userRole() {
       let role = userDoc().data.role;
       return role == 'admin' ? 'owner'
-        : role == 'user' ? 'customer'
+        : role == 'user' ? 'elaboro'
+        : role == 'customer' ? 'elaboro'
+        : role == 'advisor' ? 'supervisor'
         : role;
     }
 
@@ -20,12 +22,20 @@ service cloud.firestore {
       return signedIn() && userRole() == 'owner';
     }
 
-    function isAdvisor() {
-      return signedIn() && userRole() == 'advisor';
+    function isSupervisor() {
+      return signedIn() && userRole() == 'supervisor';
+    }
+
+    function isMeli() {
+      return signedIn() && userRole() == 'meli';
     }
 
     function canViewAllSheets() {
-      return isOwner() || isAdvisor();
+      return isOwner() || isSupervisor() || isMeli();
+    }
+
+    function canReviewRoles() {
+      return isOwner() || isSupervisor();
     }
 
     match /users/{userId} {
@@ -41,12 +51,13 @@ service cloud.firestore {
         allow read: if signedIn() && (request.auth.uid == userId || canViewAllSheets());
         allow create: if signedIn() && (
           request.auth.uid == userId
-          || isAdvisor()
+          || isSupervisor()
           || isOwner()
         );
         allow update: if signedIn() && (
           isOwner()
-          || isAdvisor()
+          || isSupervisor()
+          || isMeli()
           || (request.auth.uid == userId && resource.data.get('status', 'draft') == 'draft')
         );
         allow delete: if isOwner();
@@ -55,6 +66,13 @@ service cloud.firestore {
 
     match /{path=**}/serviceSheets/{sheetId} {
       allow read: if canViewAllSheets();
+    }
+
+    match /roleChangeRequests/{requestId} {
+      allow read: if canReviewRoles() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if canReviewRoles();
+      allow delete: if isOwner();
     }
   }
 }

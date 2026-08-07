@@ -40,13 +40,16 @@ const https_1 = require("firebase-functions/v2/https");
 admin.initializeApp();
 const USERS_COLLECTION = 'users';
 function normalizeRole(role) {
-    if (role === 'owner' || role === 'advisor' || role === 'customer')
+    if (role === 'owner' || role === 'supervisor' || role === 'elaboro' ||
+        role === 'cliente' || role === 'operador' || role === 'meli')
         return role;
-    if (role === 'admin' || role == null)
+    if (role === 'admin')
         return 'owner';
-    if (role === 'user')
-        return 'customer';
-    return 'customer';
+    if (role === 'advisor')
+        return 'supervisor';
+    if (role === 'user' || role === 'customer' || role == null)
+        return 'elaboro';
+    return 'elaboro';
 }
 async function callerIsOwner(uid) {
     const doc = await admin.firestore().collection(USERS_COLLECTION).doc(uid).get();
@@ -74,14 +77,16 @@ async function upsertAuthUser(authUser) {
     if (!existing.exists) {
         await ref.set({
             ...patch,
-            role: 'customer',
+            role: 'elaboro',
             language: 'es',
             createdAt: new Date().toISOString(),
         });
         return;
     }
     // Migrate legacy roles on sync
-    if (existingData.role === 'admin' || existingData.role === 'user' || existingData.role == null) {
+    if (existingData.role === 'admin' || existingData.role === 'user' ||
+        existingData.role === 'customer' || existingData.role === 'advisor' ||
+        existingData.role == null) {
         patch.role = normalizeRole(existingData.role);
     }
     await ref.set(patch, { merge: true });
