@@ -3,14 +3,13 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyDoEnZVcoeceqpJ9VLbLeoX_Rl56bk7urE',
-  authDomain: 'tracking-system-d2b2b.firebaseapp.com',
-  databaseURL: 'https://tracking-system-d2b2b-default-rtdb.firebaseio.com',
-  projectId: 'tracking-system-d2b2b',
-  storageBucket: 'tracking-system-d2b2b.firebasestorage.app',
-  messagingSenderId: '730650777483',
-  appId: '1:730650777483:web:7a32068083f633d8cf818e',
-  measurementId: 'G-2D5WSW78Q9',
+  apiKey: 'AIzaSyCPB0DVabvtqnCJCQVScR8NzWRpWaxXuHo',
+  authDomain: 'plastictrade-8649c.firebaseapp.com',
+  projectId: 'plastictrade-8649c',
+  storageBucket: 'plastictrade-8649c.firebasestorage.app',
+  messagingSenderId: '1087970867507',
+  appId: '1:1087970867507:web:17e6e15b68e49bc6b0e646',
+  measurementId: 'G-4BD4JVBJJF',
 };
 
 export const app = initializeApp(firebaseConfig);
