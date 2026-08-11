@@ -9,8 +9,11 @@ import {
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { completeOAuthRedirect, getAuthErrorMessage } from '@/services/auth';
-import { ensureUserProfile, getUserProfile } from '@/services/firestoreData';
-import { DEV_ALL_OWNER } from '@/lib/config';
+import {
+  ensureUserProfile,
+  getUserProfile,
+} from '@/services/firestoreData';
+import { DEV_ALL_ADMIN } from '@/lib/config';
 import {
   canCreateServiceSheet,
   canManageUsers,
@@ -26,19 +29,17 @@ interface AuthContextValue {
   profile: UserProfile | null;
   loading: boolean;
   role: UserRole;
-  isOwner: boolean;
+  isAdmin: boolean;
   isSupervisor: boolean;
+  isMeli: boolean;
+  isOperador: boolean;
+  isCliente: boolean;
   isElaboro: boolean;
   canManageUsers: boolean;
   canViewAllSheets: boolean;
   canCreateSheets: boolean;
   canReviewRoleRequests: boolean;
-  /** @deprecated Use isOwner / canManageUsers */
-  isAdmin: boolean;
-  /** @deprecated Use isSupervisor */
-  isAdvisor: boolean;
-  /** @deprecated Use isElaboro */
-  isCustomer: boolean;
+  assignedSiteIds: string[];
   oauthError: string | null;
   clearOauthError: () => void;
   refreshProfile: () => Promise<void>;
@@ -49,16 +50,17 @@ const AuthContext = createContext<AuthContextValue>({
   profile: null,
   loading: true,
   role: 'elaboro',
-  isOwner: false,
+  isAdmin: false,
   isSupervisor: false,
+  isMeli: false,
+  isOperador: false,
+  isCliente: false,
   isElaboro: true,
   canManageUsers: false,
-  canViewAllSheets: false,
-  canCreateSheets: true,
+  canViewAllSheets: true,
+  canCreateSheets: false,
   canReviewRoleRequests: false,
-  isAdmin: false,
-  isAdvisor: false,
-  isCustomer: true,
+  assignedSiteIds: [],
   oauthError: null,
   clearOauthError: () => {},
   refreshProfile: async () => {},
@@ -100,7 +102,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             );
             setProfile(p);
           } catch {
-            setProfile(null);
+            // Fall back to a read-only profile so the app can still load sheets.
+            try {
+              const p = await getUserProfile(firebaseUser.uid);
+              setProfile(p);
+            } catch {
+              setProfile(null);
+            }
           }
         } else {
           setProfile(null);
@@ -114,15 +122,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe?.();
   }, []);
 
-  const role: UserRole = DEV_ALL_OWNER
-    ? 'owner'
+  const role: UserRole = DEV_ALL_ADMIN
+    ? 'admin'
     : profile
       ? normalizeUserRole(profile.role)
       : 'elaboro';
-
-  const isOwner = role === 'owner';
-  const isSupervisor = role === 'supervisor';
-  const isElaboro = role === 'elaboro';
 
   return (
     <AuthContext.Provider
@@ -131,16 +135,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profile,
         loading,
         role,
-        isOwner,
-        isSupervisor,
-        isElaboro,
+        isAdmin: role === 'admin',
+        isSupervisor: role === 'supervisor',
+        isMeli: role === 'meli',
+        isOperador: role === 'operador',
+        isCliente: role === 'cliente',
+        isElaboro: role === 'elaboro',
         canManageUsers: canManageUsers(role),
         canViewAllSheets: canViewAllSheets(role),
         canCreateSheets: canCreateServiceSheet(role),
         canReviewRoleRequests: canReviewRoleRequests(role),
-        isAdmin: canManageUsers(role),
-        isAdvisor: isSupervisor || role === 'meli',
-        isCustomer: isElaboro || role === 'cliente' || role === 'operador',
+        assignedSiteIds: profile?.assignedSiteIds ?? [],
         oauthError,
         clearOauthError,
         refreshProfile,

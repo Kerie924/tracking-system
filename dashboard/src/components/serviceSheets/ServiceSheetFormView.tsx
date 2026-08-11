@@ -67,15 +67,21 @@ function FormCheckbox({
   const box = (
     <span
       className={cn(
-        'inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border bg-white shadow-sm transition-all',
+        'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all',
         checked
-          ? 'border-brand-600 bg-brand-600'
-          : 'border-surface-300 bg-white',
-        interactive && !checked && 'group-hover:border-brand-400 group-hover:bg-brand-50/40'
+          ? 'border-brand-700 bg-brand-600 shadow-sm shadow-brand-600/30'
+          : 'border-surface-800 bg-white',
+        interactive && !checked && 'group-hover:border-brand-500 group-hover:bg-brand-50'
       )}
       aria-hidden
     >
-      {checked && <Check className="h-3.5 w-3.5 stroke-[2.5] text-white" />}
+      {checked && (
+        <Check
+          className="h-3.5 w-3.5 text-white"
+          strokeWidth={3.5}
+          absoluteStrokeWidth
+        />
+      )}
     </span>
   );
 
@@ -87,7 +93,7 @@ function FormCheckbox({
         aria-checked={checked}
         role="checkbox"
         className={cn(
-          'group inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-1'
+          'group inline-flex rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-1'
         )}
       >
         {box}
@@ -282,7 +288,7 @@ export function ServiceSheetFormView({
     onChange(updateSheetMaterialUnitOfMeasure(sheet, materialType, unitOption));
   };
 
-  const handleUnitSelect = (_materialType: MaterialType, unitOption: string) => {
+  const handleUnitSelect = (unitOption: string) => {
     if (!editable || !onChange) return;
     onChange(updateSheetPackagingType(sheet, unitOption));
   };
@@ -299,8 +305,8 @@ export function ServiceSheetFormView({
     );
   };
 
-  const materialsGridClass =
-    'grid grid-cols-[36px_minmax(7rem,1.1fr)_4.5rem_minmax(8rem,1.4fr)_minmax(7rem,0.9fr)_5.5rem]';
+  const selectedPackaging = resolveSelectedUnitOption(sheet.packagingType);
+  const unitRowSpan = SERVICE_SHEET_MATERIAL_ROWS.length + 1; // materials + "other"
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 font-sans text-surface-900">
@@ -371,188 +377,229 @@ export function ServiceSheetFormView({
 
       <FormSection>
         <div className="overflow-x-auto">
-        <div className="min-w-[720px]">
-        <div
-          className={cn(
-            materialsGridClass,
-            'border-b border-surface-200 bg-surface-100/90 text-[10px] font-semibold uppercase tracking-wide text-surface-600 sm:text-[11px]'
-          )}
-        >
-          <div className="border-r border-surface-200 px-1 py-2.5 text-center">✓</div>
-          <div className="border-r border-surface-200 px-2 py-2.5">
-            {t.serviceSheetForm.materialCol}
-          </div>
-          <div className="border-r border-surface-200 px-2 py-2.5 text-center">
-            {t.serviceSheetForm.quantityCol}
-          </div>
-          <div className="border-r border-surface-200 px-2 py-2.5">
-            {t.serviceSheetForm.unitOfMeasureCol}
-          </div>
-          <div className="border-r border-surface-200 px-2 py-2.5">
-            {t.serviceSheetForm.unitCol}
-          </div>
-          <div className="px-2 py-2.5 text-center">{t.serviceSheetForm.kilogramsCol}</div>
-        </div>
-
-        {SERVICE_SHEET_MATERIAL_ROWS.map((row, index) => {
-          const entry = materialDetails[row.id];
-          const selectedUnit = resolveSelectedUnitOption(
-            sheet.packagingType ?? entry.unit
-          );
-          return (
-            <div
-              key={row.id}
-              className={cn(
-                materialsGridClass,
-                index % 2 === 1 && 'bg-surface-50/40',
-                'border-b border-surface-100 last:border-b-0'
-              )}
-            >
-              <div className="flex items-center justify-center border-r border-surface-100 px-1 py-2">
-                <FormCheckbox
-                  checked={entry.matched}
-                  interactive={editable}
-                  onToggle={() => handleMaterialToggle(row.id)}
-                />
-              </div>
-              <div className="flex items-start border-r border-surface-100 px-2 py-2 text-[11px] sm:text-xs">
-                <span className="mr-1 shrink-0 font-semibold text-brand-700">{row.index}.-</span>
-                <span>{getMaterialLabel(row.id, language)}</span>
-              </div>
-              <div className="flex items-center justify-center border-r border-surface-100 px-2 py-2 text-center">
-                {editable ? (
-                  <input
-                    type="number"
-                    min={0}
-                    value={entry.quantity}
-                    onChange={(e) => handleQuantityChange(row.id, e.target.value)}
-                    className={cn(fieldInputClass, 'w-14 text-center')}
-                  />
-                ) : (
-                  <span className="text-sm font-semibold">
-                    {formatNumber(entry.quantity, locale)}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-r border-surface-100 px-2 py-2">
-                {row.units.map((unit) => {
-                  const unitChecked = materialUnitMatches(entry, unit);
-                  const unitLabel = getUnitOfMeasureLabel(unit, language);
-                  const content = (
-                    <>
-                      <FormCheckbox checked={unitChecked} />
-                      <span className={cn(unitChecked && 'font-medium text-surface-900')}>
-                        {unitLabel}
-                      </span>
-                    </>
-                  );
-
-                  if (editable && entry.matched) {
-                    return (
-                      <button
-                        key={unit}
-                        type="button"
-                        onClick={() => handleUnitOfMeasureSelect(row.id, unit)}
-                        className="inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 text-[10px] transition-colors hover:bg-surface-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 sm:text-[11px]"
-                      >
-                        {content}
-                      </button>
-                    );
-                  }
-
-                  return (
-                    <span
-                      key={unit}
-                      className="inline-flex items-center gap-1.5 text-[10px] sm:text-[11px]"
-                    >
-                      {content}
-                    </span>
-                  );
-                })}
-              </div>
-              <div className="flex items-center border-r border-surface-100 px-2 py-2">
-                {editable ? (
-                  <select
-                    value={selectedUnit}
-                    onChange={(e) => handleUnitSelect(row.id, e.target.value)}
-                    className={cn(fieldInputClass, 'cursor-pointer py-1.5')}
+          <table className="w-full min-w-[720px] border-collapse text-left">
+            <thead>
+              <tr className="border-b border-surface-200 bg-surface-100/90 text-[10px] font-semibold uppercase tracking-wide text-surface-600 sm:text-[11px]">
+                <th className="w-9 border-r border-surface-200 px-1 py-2.5 text-center">
+                  ✓
+                </th>
+                <th className="border-r border-surface-200 px-2 py-2.5 font-semibold">
+                  {t.serviceSheetForm.materialCol}
+                </th>
+                <th className="w-[4.5rem] border-r border-surface-200 px-2 py-2.5 text-center font-semibold">
+                  {t.serviceSheetForm.quantityCol}
+                </th>
+                <th className="min-w-[8rem] border-r border-surface-200 px-2 py-2.5 font-semibold">
+                  {t.serviceSheetForm.unitOfMeasureCol}
+                </th>
+                <th className="w-[9.5rem] border-r border-surface-200 px-2 py-2.5 font-semibold">
+                  {t.serviceSheetForm.unitCol}
+                </th>
+                <th className="w-[5.5rem] px-2 py-2.5 text-center font-semibold">
+                  {t.serviceSheetForm.kilogramsCol}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {SERVICE_SHEET_MATERIAL_ROWS.map((row, index) => {
+                const entry = materialDetails[row.id];
+                return (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      'border-b border-surface-100',
+                      index % 2 === 1 && 'bg-surface-50/40'
+                    )}
                   >
-                    <option value="">{t.serviceSheetForm.selectUnit}</option>
-                    {SERVICE_SHEET_UNIT_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {getUnitLabel(option, language)}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="text-[11px] text-surface-800/70 sm:text-xs">
-                    {selectedUnit ? getUnitLabel(selectedUnit, language) : '—'}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center px-2 py-2">
-                {editable ? (
-                  <div className="relative w-full">
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={entry.kilograms ?? ''}
-                      onChange={(e) => handleKilogramsChange(row.id, e.target.value)}
-                      className={cn(fieldInputClass, 'w-full bg-surface-50 pr-8 text-right')}
-                    />
-                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] font-medium text-surface-500">
-                      {t.serviceSheetForm.kg}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="relative w-full">
-                    <div
-                      className={cn(
-                        fieldInputClass,
-                        'min-h-[1.75rem] bg-surface-50 pr-8 text-right'
+                    <td className="border-r border-surface-100 px-1 py-2 text-center align-middle">
+                      <FormCheckbox
+                        checked={entry.matched}
+                        interactive={editable}
+                        onToggle={() => handleMaterialToggle(row.id)}
+                      />
+                    </td>
+                    <td className="border-r border-surface-100 px-2 py-2 align-middle text-[11px] sm:text-xs">
+                      <span className="mr-1 font-semibold text-brand-700">
+                        {row.index}.-
+                      </span>
+                      {getMaterialLabel(row.id, language)}
+                    </td>
+                    <td className="border-r border-surface-100 px-2 py-2 text-center align-middle">
+                      {editable ? (
+                        <input
+                          type="number"
+                          min={0}
+                          value={entry.quantity}
+                          onChange={(e) =>
+                            handleQuantityChange(row.id, e.target.value)
+                          }
+                          className={cn(fieldInputClass, 'w-14 text-center')}
+                        />
+                      ) : (
+                        <span className="text-sm font-semibold">
+                          {formatNumber(entry.quantity, locale)}
+                        </span>
                       )}
-                    >
-                      {entry.kilograms != null
-                        ? formatNumber(entry.kilograms, locale)
-                        : ''}
-                    </div>
-                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] font-medium text-surface-500">
-                      {t.serviceSheetForm.kg}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
+                    </td>
+                    <td className="border-r border-surface-100 px-2 py-2 align-middle">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        {row.units.map((unit) => {
+                          const unitChecked = materialUnitMatches(entry, unit);
+                          const unitLabel = getUnitOfMeasureLabel(unit, language);
+                          const content = (
+                            <>
+                              <FormCheckbox checked={unitChecked} />
+                              <span
+                                className={cn(
+                                  unitChecked && 'font-semibold text-surface-900'
+                                )}
+                              >
+                                {unitLabel}
+                              </span>
+                            </>
+                          );
 
-        <div
-          className={cn(
-            materialsGridClass,
-            'border-t border-surface-200 bg-surface-50/30'
-          )}
-        >
-          <div className="border-r border-surface-100 px-1 py-2" />
-          <div className="border-r border-surface-100 px-2 py-2 text-[11px] sm:text-xs">
-            {t.serviceSheetForm.other}:
-          </div>
-          <div className="border-r border-surface-100 px-2 py-2" />
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-r border-surface-100 px-2 py-2">
-            {OTHER_ROW_UNIT_OF_MEASURE.map((unit) => (
-              <span
-                key={unit}
-                className="inline-flex items-center gap-1.5 text-[10px] text-surface-500 sm:text-[11px]"
-              >
-                <FormCheckbox checked={false} />
-                <span>{getUnitOfMeasureLabel(unit, language)}</span>
-              </span>
-            ))}
-          </div>
-          <div className="border-r border-surface-100 px-2 py-2" />
-          <div className="px-2 py-2" />
-        </div>
-        </div>
+                          if (editable && entry.matched) {
+                            return (
+                              <button
+                                key={unit}
+                                type="button"
+                                onClick={() =>
+                                  handleUnitOfMeasureSelect(row.id, unit)
+                                }
+                                className="inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 text-[10px] transition-colors hover:bg-surface-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 sm:text-[11px]"
+                              >
+                                {content}
+                              </button>
+                            );
+                          }
+
+                          return (
+                            <span
+                              key={unit}
+                              className="inline-flex items-center gap-1.5 text-[10px] sm:text-[11px]"
+                            >
+                              {content}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    {index === 0 && (
+                      <td
+                        rowSpan={unitRowSpan}
+                        className="border-r border-surface-100 bg-white px-2 py-2 align-top"
+                      >
+                        <div className="flex flex-col gap-1.5">
+                          {SERVICE_SHEET_UNIT_OPTIONS.map((option) => {
+                            const unitChecked =
+                              selectedPackaging === option ||
+                              matchesUnitOption(sheet.packagingType, option);
+                            const label = getUnitLabel(option, language);
+                            const content = (
+                              <>
+                                <FormCheckbox checked={unitChecked} />
+                                <span
+                                  className={cn(
+                                    'text-[10px] leading-tight sm:text-[11px]',
+                                    unitChecked && 'font-semibold text-surface-900'
+                                  )}
+                                >
+                                  {label}
+                                </span>
+                              </>
+                            );
+
+                            if (editable) {
+                              return (
+                                <button
+                                  key={option}
+                                  type="button"
+                                  onClick={() => handleUnitSelect(option)}
+                                  className="inline-flex items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-surface-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
+                                >
+                                  {content}
+                                </button>
+                              );
+                            }
+
+                            return (
+                              <span
+                                key={option}
+                                className="inline-flex items-center gap-2 px-1 py-0.5"
+                              >
+                                {content}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    )}
+                    <td className="px-2 py-2 align-middle">
+                      {editable ? (
+                        <div className="relative w-full">
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={entry.kilograms ?? ''}
+                            onChange={(e) =>
+                              handleKilogramsChange(row.id, e.target.value)
+                            }
+                            className={cn(
+                              fieldInputClass,
+                              'w-full bg-surface-50 pr-8 text-right'
+                            )}
+                          />
+                          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] font-medium text-surface-500">
+                            {t.serviceSheetForm.kg}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="relative w-full">
+                          <div
+                            className={cn(
+                              fieldInputClass,
+                              'min-h-[1.75rem] bg-surface-50 pr-8 text-right'
+                            )}
+                          >
+                            {entry.kilograms != null
+                              ? formatNumber(entry.kilograms, locale)
+                              : ''}
+                          </div>
+                          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] font-medium text-surface-500">
+                            {t.serviceSheetForm.kg}
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+
+              <tr className="border-t border-surface-200 bg-surface-50/30">
+                <td className="border-r border-surface-100 px-1 py-2" />
+                <td className="border-r border-surface-100 px-2 py-2 text-[11px] sm:text-xs">
+                  {t.serviceSheetForm.other}:
+                </td>
+                <td className="border-r border-surface-100 px-2 py-2" />
+                <td className="border-r border-surface-100 px-2 py-2">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    {OTHER_ROW_UNIT_OF_MEASURE.map((unit) => (
+                      <span
+                        key={unit}
+                        className="inline-flex items-center gap-1.5 text-[10px] text-surface-500 sm:text-[11px]"
+                      >
+                        <FormCheckbox checked={false} />
+                        <span>{getUnitOfMeasureLabel(unit, language)}</span>
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td className="px-2 py-2" />
+              </tr>
+            </tbody>
+          </table>
         </div>
       </FormSection>
 

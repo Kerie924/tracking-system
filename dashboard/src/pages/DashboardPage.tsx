@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { KpiCard } from '@/components/ui/KpiCard';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
@@ -7,17 +8,21 @@ import {
   ServiceSheetTable,
   ServiceSheetFormView,
 } from '@/components/serviceSheets/ServiceSheetTable';
+import { AdminRequestQueues } from '@/components/admin/AdminRequestQueues';
 import { TrendChart, MaterialPieChart, SiteBarChart } from '@/components/charts/Charts';
 import { LoadingSpinner, Modal } from '@/components/ui/Modal';
 import { useServiceSheetStats, useTrends } from '@/hooks/useFirestoreData';
+import { useAuth } from '@/contexts/AuthContext';
 import { useTranslation } from '@/contexts/LanguageContext';
 import { getMaterialLabel } from '@/i18n/translations';
 import { formatNumber, MATERIAL_TYPES } from '@/types';
 import type { ServiceSheet } from '@/types';
-import { FileText, Package, MapPin, Users, Calendar } from 'lucide-react';
+import { FileText, Package, MapPin, Users, Calendar, Plus, Scale } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export function DashboardPage() {
   const { t, language, locale } = useTranslation();
+  const { canCreateSheets, isAdmin } = useAuth();
   const { stats, sheets, loading, error, canViewAllSheets } = useServiceSheetStats();
   const { data: trends } = useTrends(7);
   const [selected, setSelected] = useState<ServiceSheet | null>(null);
@@ -43,15 +48,30 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div className="mb-6 flex flex-wrap items-center gap-2 sm:gap-3">
-        <LiveBadge label={t.dashboard.live} />
-        <span className="text-xs text-surface-800/50 sm:text-sm">
-          {sheets.length} {t.dashboard.sheetsRegistered}
-        </span>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <LiveBadge label={t.dashboard.live} />
+          <span className="text-xs text-surface-800/50 sm:text-sm">
+            {sheets.length} {t.dashboard.sheetsRegistered}
+          </span>
+        </div>
+        {canCreateSheets && (
+          <Link
+            to="/departures"
+            className={cn(
+              'inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-brand-600/20 transition hover:bg-brand-700 sm:w-auto'
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            {t.serviceSheet.addSheet}
+          </Link>
+        )}
       </div>
 
+      {isAdmin && <AdminRequestQueues />}
+
       <div
-        className={`mb-6 grid grid-cols-1 gap-4 sm:mb-8 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 ${canViewAllSheets ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}
+        className={`mb-6 grid grid-cols-1 gap-4 sm:mb-8 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 ${canViewAllSheets ? 'xl:grid-cols-6' : 'xl:grid-cols-5'}`}
       >
         <KpiCard
           title={t.dashboard.sheetsToday}
@@ -66,10 +86,16 @@ export function DashboardPage() {
           color="blue"
         />
         <KpiCard
+          title={t.dashboard.totalKilograms}
+          value={`${formatNumber(stats.totalKilograms, locale)} kg`}
+          icon={Scale}
+          color="purple"
+        />
+        <KpiCard
           title={t.dashboard.totalQuantity}
           value={formatNumber(stats.totalQuantity, locale)}
           icon={Package}
-          color="purple"
+          color="amber"
         />
         <KpiCard
           title={t.dashboard.activeSites}
@@ -102,6 +128,7 @@ export function DashboardPage() {
             <div className="space-y-4">
               {MATERIAL_TYPES.map(({ id, color }) => {
                 const qty = stats.byMaterial[id] ?? 0;
+                const kg = stats.byMaterialKg[id] ?? 0;
                 const total = totalMaterialQty || 1;
                 const pct = Math.round((qty / total) * 100);
                 return (
@@ -111,7 +138,8 @@ export function DashboardPage() {
                         {getMaterialLabel(id, language)}
                       </span>
                       <span className="font-semibold text-surface-900">
-                        {formatNumber(qty, locale)} ({pct}%)
+                        {formatNumber(qty, locale)} · {formatNumber(kg, locale)} kg
+                        {qty > 0 ? ` (${pct}%)` : ''}
                       </span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-surface-100">
@@ -135,10 +163,7 @@ export function DashboardPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="px-0 pb-0">
-          <ServiceSheetTable
-            sheets={sheets}
-            onRowClick={setSelected}
-          />
+          <ServiceSheetTable sheets={sheets} onRowClick={setSelected} />
         </CardContent>
       </Card>
 

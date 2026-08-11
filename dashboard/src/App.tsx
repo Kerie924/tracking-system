@@ -11,6 +11,7 @@ import { AnalyticsPage } from '@/pages/AnalyticsPage';
 import { UsersPage } from '@/pages/UsersPage';
 import { ProfilePage } from '@/pages/ProfilePage';
 import { TvModePage } from '@/pages/TvModePage';
+import { CatalogPage } from '@/pages/CatalogPage';
 
 export default function App() {
   return (
@@ -55,6 +56,16 @@ export default function App() {
               }
             />
             <Route
+              path="/catalog"
+              element={
+                <ProtectedRoute>
+                  <AdminRoute>
+                    <CatalogPage />
+                  </AdminRoute>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/profile"
               element={
                 <ProtectedRoute>
@@ -70,7 +81,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
-            <Route path="/sites" element={<Navigate to="/analytics" replace />} />
+            <Route path="/sites" element={<Navigate to="/catalog" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>

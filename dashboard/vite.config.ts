@@ -17,10 +17,25 @@ export default defineConfig({
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
     },
+    proxy: {
+      // Avoid browser CORS: Railway OCR has no Access-Control-Allow-Origin.
+      '/api/ocr': {
+        target: 'https://plastictrade-image-fetcher-production.up.railway.app',
+        changeOrigin: true,
+        rewrite: () => '/process',
+      },
+    },
   },
   preview: {
     host: '127.0.0.1',
     port: 4173,
     strictPort: true,
+    proxy: {
+      '/api/ocr': {
+        target: 'https://plastictrade-image-fetcher-production.up.railway.app',
+        changeOrigin: true,
+        rewrite: () => '/process',
+      },
+    },
   },
 });

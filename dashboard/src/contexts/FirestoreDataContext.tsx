@@ -35,7 +35,7 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
   const {
     user,
     profile,
-    canViewAllSheets,
+    canManageUsers,
     loading: authLoading,
   } = useAuth();
 
@@ -47,14 +47,21 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
   const [usersError, setUsersError] = useState<string | null>(null);
 
   const userId = user?.uid;
-  const profileId = profile?.id;
   const profileName = profile?.name;
-  const profileEmail = profile?.email;
+  const profileEmail = profile?.email ?? user?.email ?? undefined;
 
+  // All signed-in users subscribe to top-level serviceSheets. Do not wait on
+  // profile — a failed profile write must not block the dashboard forever.
   useEffect(() => {
-    if (authLoading || !userId || !profileId) {
+    if (authLoading) {
+      setSheetsLoading(true);
+      return;
+    }
+
+    if (!userId) {
       setSheetsRaw([]);
-      setSheetsLoading(!authLoading);
+      setSheetsLoading(false);
+      setSheetsError(null);
       return;
     }
 
@@ -64,7 +71,7 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
     const unsubscribe = subscribeToServiceSheetsCollection(
       {
         userId,
-        canViewAllSheets,
+        canViewAllSheets: true,
         userName: profileName,
         userEmail: profileEmail,
       },
@@ -80,12 +87,19 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
     );
 
     return unsubscribe;
-  }, [authLoading, userId, profileId, profileName, profileEmail, canViewAllSheets]);
+  }, [authLoading, userId, profileName, profileEmail]);
 
+  // Load users for creator enrichment on sheets (and admin user management).
   useEffect(() => {
-    if (authLoading || !userId || !canViewAllSheets) {
+    if (authLoading) {
+      setUsersLoading(true);
+      return;
+    }
+
+    if (!userId) {
       setUsers([]);
       setUsersLoading(false);
+      setUsersError(null);
       return;
     }
 
@@ -99,20 +113,20 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
         setUsersError(null);
       },
       (err) => {
+        // Listing all users may be denied for non-admin; sheets still load.
+        setUsers([]);
         setUsersError(err.message);
         setUsersLoading(false);
       }
     );
 
     return unsubscribe;
-  }, [authLoading, userId, canViewAllSheets]);
+  }, [authLoading, userId]);
 
   const sheets = useMemo(() => {
-    if (!canViewAllSheets) return sheetsRaw;
-
     const usersMap = new Map(users.map((u) => [u.id, u]));
     return sheetsRaw.map((sheet) => {
-      const owner = usersMap.get(sheet.userId);
+      const owner = usersMap.get(sheet.userId) ?? usersMap.get(sheet.createdBy ?? '');
       if (!owner) return sheet;
       return {
         ...sheet,
@@ -120,7 +134,7 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
         userEmail: owner.email || sheet.userEmail,
       };
     });
-  }, [sheetsRaw, users, canViewAllSheets]);
+  }, [sheetsRaw, users]);
 
   const stats = useMemo(() => computeStatsFromSheets(sheets), [sheets]);
 
@@ -133,8 +147,8 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
       usersLoading: usersLoading || authLoading,
       sheetsError,
       usersError,
-      canViewAllSheets,
-      isAdmin: canViewAllSheets,
+      canViewAllSheets: true,
+      isAdmin: canManageUsers,
     }),
     [
       sheets,
@@ -145,7 +159,7 @@ export function FirestoreDataProvider({ children }: { children: ReactNode }) {
       authLoading,
       sheetsError,
       usersError,
-      canViewAllSheets,
+      canManageUsers,
     ]
   );
 

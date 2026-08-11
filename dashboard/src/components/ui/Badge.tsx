@@ -25,9 +25,15 @@ export function MaterialBadge({ type }: { type: MaterialType | string }) {
 
 const STATUS_STYLES: Record<ServiceSheetStatus, string> = {
   draft: 'bg-surface-100 text-surface-700',
+  pending_supervisor: 'bg-sky-50 text-sky-700',
+  pending_meli: 'bg-amber-50 text-amber-800',
+  pending_process2: 'bg-indigo-50 text-indigo-700',
+  pending_cliente: 'bg-violet-50 text-violet-700',
+  completed: 'bg-emerald-50 text-emerald-700',
+  approved: 'bg-emerald-50 text-emerald-700',
+  rejected: 'bg-rose-50 text-rose-700',
   validated: 'bg-sky-50 text-sky-700',
   authorized: 'bg-amber-50 text-amber-800',
-  completed: 'bg-emerald-50 text-emerald-700',
 };
 
 export function StatusBadge({

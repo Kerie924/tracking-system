@@ -11,6 +11,7 @@ import {
   UserCircle,
   Menu,
   X,
+  Library,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
@@ -42,7 +43,10 @@ export function Sidebar({
     { to: '/departures', icon: FileText, label: t.nav.serviceSheets },
     { to: '/analytics', icon: BarChart3, label: t.nav.analytics },
     ...(canManageUsers
-      ? [{ to: '/users', icon: Users, label: t.nav.userManagement }]
+      ? [
+          { to: '/users', icon: Users, label: t.nav.userManagement },
+          { to: '/catalog', icon: Library, label: t.nav.catalog },
+        ]
       : []),
     { to: '/profile', icon: UserCircle, label: t.nav.profile },
     { to: '/tv', icon: Monitor, label: t.nav.tvMode },

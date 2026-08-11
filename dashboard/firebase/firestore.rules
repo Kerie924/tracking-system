@@ -9,17 +9,22 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
+    function rawRole() {
+      return userDoc().data.role;
+    }
+
+    /** Normalized role aligned with mobile (owner → admin, etc.) */
     function userRole() {
-      let role = userDoc().data.role;
-      return role == 'admin' ? 'owner'
+      let role = rawRole();
+      return role == 'owner' ? 'admin'
         : role == 'user' ? 'elaboro'
         : role == 'customer' ? 'elaboro'
         : role == 'advisor' ? 'supervisor'
         : role;
     }
 
-    function isOwner() {
-      return signedIn() && userRole() == 'owner';
+    function isAdmin() {
+      return signedIn() && userRole() == 'admin';
     }
 
     function isSupervisor() {
@@ -30,49 +35,132 @@ service cloud.firestore {
       return signedIn() && userRole() == 'meli';
     }
 
-    function canViewAllSheets() {
-      return isOwner() || isSupervisor() || isMeli();
+    function isOperador() {
+      return signedIn() && userRole() == 'operador';
     }
 
-    function canReviewRoles() {
-      return isOwner() || isSupervisor();
+    function isCliente() {
+      return signedIn() && userRole() == 'cliente';
+    }
+
+    function isElaboro() {
+      return signedIn() && userRole() == 'elaboro';
+    }
+
+    function canCreateSheets() {
+      // MD §13 — any signed-in user; createdBy checked on the match rule.
+      return signedIn();
+    }
+
+    function sheetCreateStatusOk() {
+      let status = request.resource.data.get('status', 'draft');
+      return status in [
+        'draft',
+        'pending_supervisor',
+        'pending_meli',
+        'pending_process2',
+        'pending_cliente',
+        'completed',
+        'rejected'
+      ];
     }
 
     match /users/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || canViewAllSheets());
-      allow create: if signedIn() && request.auth.uid == userId;
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role in ['elaboro', 'supervisor', 'meli', 'operador', 'cliente'];
       allow update: if signedIn() && (
-        request.auth.uid == userId
-        || (isOwner() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']))
+        (request.auth.uid == userId
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'assignedSiteIds']))
+        || isAdmin()
       );
-      allow delete: if isOwner();
+      allow delete: if isAdmin();
 
       match /serviceSheets/{sheetId} {
-        allow read: if signedIn() && (request.auth.uid == userId || canViewAllSheets());
-        allow create: if signedIn() && (
-          request.auth.uid == userId
-          || isSupervisor()
-          || isOwner()
-        );
-        allow update: if signedIn() && (
-          isOwner()
-          || isSupervisor()
-          || isMeli()
-          || (request.auth.uid == userId && resource.data.get('status', 'draft') == 'draft')
-        );
-        allow delete: if isOwner();
+        allow read: if signedIn();
+        allow write: if false;
       }
     }
 
-    match /{path=**}/serviceSheets/{sheetId} {
-      allow read: if canViewAllSheets();
+    match /serviceSheets/{sheetId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && sheetCreateStatusOk();
+
+      allow update: if signedIn() && (
+        isAdmin()
+        || (
+          resource.data.createdBy == request.auth.uid
+          && resource.data.get('status', 'draft') in ['draft', 'rejected']
+        )
+        || isSupervisor()
+        || isMeli()
+        || isOperador()
+        || isCliente()
+        || (
+          isElaboro()
+          && resource.data.createdBy == request.auth.uid
+        )
+      );
+
+      allow delete: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.createdBy == request.auth.uid
+          && resource.data.get('status', 'draft') == 'draft'
+        );
     }
 
     match /roleChangeRequests/{requestId} {
-      allow read: if canReviewRoles() || (signedIn() && resource.data.userId == request.auth.uid);
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if canReviewRoles();
-      allow delete: if isOwner();
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.requestedRole in ['elaboro', 'supervisor', 'meli', 'operador', 'cliente'];
+      allow update: if isAdmin();
+      allow delete: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+          && resource.data.status == 'pending'
+        );
+    }
+
+    match /siteChangeRequests/{requestId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.requestedSiteIds is list;
+      allow update: if isAdmin();
+      allow delete: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+          && resource.data.status == 'pending'
+        );
+    }
+
+    match /sites/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /materials/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /measureUnits/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /transportUnits/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
   }
 }

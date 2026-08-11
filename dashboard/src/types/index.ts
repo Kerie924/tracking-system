@@ -5,28 +5,48 @@ export type MaterialType =
   | 'TARIMAS'
   | 'TUBO_CARTON'
   | 'ORGANICOS'
-  | 'CHATARRA';
+  | 'CHATARRA'
+  | 'OTRO';
 
 export type UserRole =
   | 'elaboro'
   | 'supervisor'
-  | 'owner'
-  | 'cliente'
+  | 'meli'
   | 'operador'
-  | 'meli';
+  | 'cliente'
+  | 'admin';
 
 export type ServiceSheetStatus =
   | 'draft'
+  | 'pending_supervisor'
+  | 'pending_meli'
+  | 'pending_process2'
+  | 'pending_cliente'
+  | 'completed'
+  | 'approved'
+  | 'rejected'
+  /** @deprecated legacy dashboard statuses */
   | 'validated'
-  | 'authorized'
-  | 'completed';
+  | 'authorized';
 
 export type RoleChangeRequestStatus = 'pending' | 'approved' | 'rejected';
 
 export type Language = 'en' | 'es';
 
+export type SheetSource = 'manual' | 'ocr';
+
+export interface FirmaEntry {
+  filled?: boolean;
+  value?: string | null;
+  nombre?: string | null;
+  nombre_probable?: string | null;
+}
+
+export type SheetFirmas = Record<string, FirmaEntry | undefined>;
+
 export interface ServiceSheetMaterial {
   materialType: MaterialType | string;
+  customMaterialName?: string;
   quantity: number;
   /** Unit of measure — stored in Firestore as `unit` (e.g. bulk) */
   unitOfMeasure?: string;
@@ -61,7 +81,11 @@ export interface ServiceSheet {
   sealNumber?: string;
   siteId?: string;
   siteName?: string;
-  source?: string;
+  source?: SheetSource | string;
+  photoUri?: string;
+  sheetJson?: Record<string, unknown>;
+  firmas?: SheetFirmas;
+  rejectionReason?: string;
   trailerPlates?: string;
   vehiclePlates?: string;
   latitude?: number;
@@ -92,6 +116,8 @@ export interface UserProfile {
   role: UserRole;
   language: Language;
   createdAt: string;
+  assignedSiteIds?: string[];
+  updatedAt?: string;
 }
 
 export interface RoleChangeRequest {
@@ -106,15 +132,165 @@ export interface RoleChangeRequest {
   reviewedAt?: string;
   reviewedBy?: string;
   reviewedByName?: string;
+  rejectionReason?: string;
+}
+
+export interface SiteChangeRequest {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  currentSiteIds: string[];
+  requestedSiteIds: string[];
+  status: RoleChangeRequestStatus;
+  createdAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  reviewedByName?: string;
+  rejectionReason?: string;
+}
+
+export interface CatalogSite {
+  id: string;
+  code: string;
+  formCodigo?: string;
+  name: string;
+  labelEn?: string;
+  labelEs?: string;
+  sortOrder?: number;
+  active?: boolean;
+}
+
+/** Fallback sites when Firestore catalog is empty. */
+export const FALLBACK_SITES: CatalogSite[] = [
+  {
+    id: 'mxcd-13',
+    code: 'MXCD-13',
+    formCodigo: 'MXCD-13',
+    name: 'MXCD-13',
+    labelEs: 'MXCD-13',
+    labelEn: 'MXCD-13',
+    sortOrder: 1,
+    active: true,
+  },
+  {
+    id: 'cedis-norte',
+    code: 'CEDIS-NORTE',
+    name: 'CEDIS Norte',
+    labelEs: 'CEDIS Norte',
+    labelEn: 'CEDIS Norte',
+    sortOrder: 2,
+    active: true,
+  },
+  {
+    id: 'cedis-centro',
+    code: 'CEDIS-CENTRO',
+    name: 'CEDIS Centro',
+    labelEs: 'CEDIS Centro',
+    labelEn: 'CEDIS Centro',
+    sortOrder: 3,
+    active: true,
+  },
+  {
+    id: 'cedis-sur',
+    code: 'CEDIS-SUR',
+    name: 'CEDIS Sur',
+    labelEs: 'CEDIS Sur',
+    labelEn: 'CEDIS Sur',
+    sortOrder: 4,
+    active: true,
+  },
+];
+
+export function canRequestSiteAssignment(role: UserRole): boolean {
+  return role === 'supervisor' || role === 'meli';
+}
+
+export function siteDisplayName(site: CatalogSite, lang: Language = 'es'): string {
+  if (lang === 'en' && site.labelEn) return site.labelEn;
+  if (lang === 'es' && site.labelEs) return site.labelEs;
+  return site.name || site.code || site.id;
+}
+
+/** Match a catalog site from OCR / form codes like MXCD-13. */
+export function matchCatalogSite(
+  sites: CatalogSite[],
+  codeOrId?: string | null
+): CatalogSite | undefined {
+  if (!codeOrId?.trim()) return undefined;
+  const raw = codeOrId.trim();
+  const lower = raw.toLowerCase();
+  const upper = raw.toUpperCase();
+  const compact = upper.replace(/[^A-Z0-9]/g, '');
+  return sites.find((s) => {
+    const code = (s.code || '').toUpperCase();
+    const form = (s.formCodigo || '').toUpperCase();
+    return (
+      s.id === raw ||
+      s.id === lower ||
+      code === upper ||
+      form === upper ||
+      code.replace(/[^A-Z0-9]/g, '') === compact ||
+      form.replace(/[^A-Z0-9]/g, '') === compact
+    );
+  });
+}
+
+/**
+ * Stamp signature / Process-2 metadata when advancing status.
+ */
+export function applyStatusTransition(
+  sheet: ServiceSheet,
+  nextStatus: ServiceSheetStatus,
+  actor: { uid: string; name?: string; role: UserRole }
+): ServiceSheet {
+  const now = new Date().toISOString();
+  const name = (actor.name || '').trim();
+  const updated: ServiceSheet = { ...sheet, status: nextStatus };
+
+  if (nextStatus === 'pending_supervisor') {
+    updated.elaboroSignedAt = sheet.elaboroSignedAt ?? now;
+    if (name) updated.elaboro = name;
+  } else if (nextStatus === 'pending_meli') {
+    updated.supervisorSignedAt = now;
+    updated.supervisorUserId = actor.uid;
+    if (name) updated.responsableSup = name;
+  } else if (nextStatus === 'pending_process2') {
+    updated.meliSignedAt = now;
+    updated.meliUserId = actor.uid;
+    if (name) updated.autoriza = name;
+  } else if (nextStatus === 'pending_cliente') {
+    updated.operadorSignedAt = now;
+    updated.operadorUserId = actor.uid;
+    if (name) {
+      updated.recibio = name;
+      updated.entrega = name;
+    }
+  } else if (nextStatus === 'completed') {
+    updated.clienteSignedAt = now;
+    updated.clienteUserId = actor.uid;
+    updated.process2CompletedAt = now;
+    updated.process2CompletedBy = actor.uid;
+    if (name) {
+      updated.recibe = name;
+      updated.process2CompletedByName = name;
+    }
+  }
+
+  return updated;
 }
 
 export interface DashboardStats {
   totalSheets: number;
   todaySheets: number;
   totalQuantity: number;
+  /** Sum of material kilograms across sheets */
+  totalKilograms: number;
   activeSites: number;
   activeUsers: number;
   byMaterial: Record<MaterialType, number>;
+  /** Kilograms per material type */
+  byMaterialKg: Record<MaterialType, number>;
   bySite: Record<string, number>;
 }
 
@@ -126,6 +302,7 @@ export const MATERIAL_TYPES = [
   { id: 'TUBO_CARTON' as const, color: '#d97706', unit: 'pzas' },
   { id: 'ORGANICOS' as const, color: '#16a34a', unit: 'kg' },
   { id: 'CHATARRA' as const, color: '#64748b', unit: 'kg' },
+  { id: 'OTRO' as const, color: '#94a3b8', unit: 'kg' },
 ] as const;
 
 /** Maps legacy / OCR material keys to the standard types */
@@ -144,6 +321,8 @@ const MATERIAL_ALIASES: Record<string, MaterialType> = {
   ORGANICO: 'ORGANICOS',
   ORGÁNICO: 'ORGANICOS',
   CHATARRA: 'CHATARRA',
+  OTRO: 'OTRO',
+  OTHER: 'OTRO',
   POLIETILENO: 'PLAYO',
   BASURA: 'RSU',
 };
@@ -151,35 +330,46 @@ const MATERIAL_ALIASES: Record<string, MaterialType> = {
 export const USER_ROLES: UserRole[] = [
   'elaboro',
   'supervisor',
-  'owner',
-  'cliente',
-  'operador',
   'meli',
+  'operador',
+  'cliente',
+  'admin',
+];
+
+export const REQUESTABLE_ROLES: UserRole[] = [
+  'elaboro',
+  'supervisor',
+  'meli',
+  'operador',
+  'cliente',
 ];
 
 export const SERVICE_SHEET_STATUSES: ServiceSheetStatus[] = [
   'draft',
-  'validated',
-  'authorized',
+  'pending_supervisor',
+  'pending_meli',
+  'pending_process2',
+  'pending_cliente',
   'completed',
+  'rejected',
 ];
 
-const LEGACY_ROLES = new Set(['admin', 'user', 'customer', 'advisor']);
+const LEGACY_ROLES = new Set(['owner', 'user', 'customer', 'advisor']);
 
-/** Maps Firestore / legacy roles onto the dashboard role model. */
+/** Maps Firestore / legacy roles onto the mobile role model. */
 export function normalizeUserRole(role: unknown): UserRole {
   if (
     role === 'elaboro' ||
     role === 'supervisor' ||
-    role === 'owner' ||
-    role === 'cliente' ||
+    role === 'meli' ||
     role === 'operador' ||
-    role === 'meli'
+    role === 'cliente' ||
+    role === 'admin'
   ) {
     return role;
   }
+  if (role === 'owner') return 'admin';
   if (role === 'advisor') return 'supervisor';
-  if (role === 'admin') return 'owner';
   if (role === 'customer' || role === 'user') return 'elaboro';
   if (role == null || role === '') return 'elaboro';
   return 'elaboro';
@@ -190,11 +380,17 @@ export function isLegacyRole(role: unknown): boolean {
 }
 
 export function normalizeSheetStatus(status: unknown): ServiceSheetStatus {
+  if (status === 'approved') return 'completed';
+  if (status === 'validated') return 'pending_supervisor';
+  if (status === 'authorized') return 'pending_meli';
   if (
     status === 'draft' ||
-    status === 'validated' ||
-    status === 'authorized' ||
-    status === 'completed'
+    status === 'pending_supervisor' ||
+    status === 'pending_meli' ||
+    status === 'pending_process2' ||
+    status === 'pending_cliente' ||
+    status === 'completed' ||
+    status === 'rejected'
   ) {
     return status;
   }
@@ -210,20 +406,22 @@ export function getSheetOwnerId(sheet: Pick<ServiceSheet, 'userId' | 'createdBy'
   return sheet.createdBy || sheet.userId;
 }
 
-export function canViewAllSheets(role: UserRole): boolean {
-  return role === 'supervisor' || role === 'owner' || role === 'meli';
+export function canViewAllSheets(_role: UserRole): boolean {
+  return true;
 }
 
 export function canManageUsers(role: UserRole): boolean {
-  return role === 'owner';
+  return role === 'admin';
 }
 
 export function canReviewRoleRequests(role: UserRole): boolean {
-  return role === 'owner' || role === 'supervisor';
+  return role === 'admin';
 }
 
-export function canCreateServiceSheet(role: UserRole): boolean {
-  return role === 'elaboro' || role === 'supervisor' || role === 'owner';
+export function canCreateServiceSheet(_role: UserRole): boolean {
+  // MD §13: any signed-in user may create when createdBy == auth.uid.
+  // Role still gates approval / Process 2 / admin queues.
+  return true;
 }
 
 export function canEditSheet(
@@ -233,12 +431,9 @@ export function canEditSheet(
 ): boolean {
   const status = getSheetStatus(sheet);
   const ownerId = getSheetOwnerId(sheet);
-  if (role === 'owner') return status !== 'completed';
-  if (role === 'supervisor' || role === 'meli') {
-    return status === 'draft' || status === 'validated';
-  }
-  if (role === 'elaboro' || role === 'cliente' || role === 'operador') {
-    return ownerId === userId && status === 'draft';
+  if (role === 'admin') return status !== 'completed';
+  if (role === 'elaboro') {
+    return ownerId === userId && (status === 'draft' || status === 'rejected');
   }
   return false;
 }
@@ -246,52 +441,176 @@ export function canEditSheet(
 export function getNextSheetStatus(
   status: ServiceSheetStatus
 ): ServiceSheetStatus | null {
-  if (status === 'draft') return 'validated';
-  if (status === 'validated') return 'authorized';
-  if (status === 'authorized') return 'completed';
+  const current = normalizeSheetStatus(status);
+  if (current === 'draft' || current === 'rejected') return 'pending_supervisor';
+  if (current === 'pending_supervisor') return 'pending_meli';
+  if (current === 'pending_meli') return 'pending_process2';
+  if (current === 'pending_process2') return 'pending_cliente';
+  if (current === 'pending_cliente') return 'completed';
   return null;
+}
+
+export function canAccessSheetSite(
+  role: UserRole,
+  siteId: string | undefined,
+  assignedSiteIds: string[] = []
+): boolean {
+  if (role !== 'supervisor' && role !== 'meli') return true;
+  if (!siteId) return false;
+  return assignedSiteIds.includes(siteId);
 }
 
 export function canAdvanceSheetStatus(
   role: UserRole,
-  sheet: Pick<ServiceSheet, 'userId' | 'createdBy' | 'status'>,
-  _userId: string,
-  nextStatus: ServiceSheetStatus
+  sheet: Pick<ServiceSheet, 'userId' | 'createdBy' | 'status' | 'siteId'>,
+  userId: string,
+  nextStatus: ServiceSheetStatus,
+  assignedSiteIds: string[] = []
 ): boolean {
   const current = getSheetStatus(sheet);
   if (getNextSheetStatus(current) !== nextStatus) return false;
+  if (role === 'admin') return true;
 
-  if (nextStatus === 'validated') {
-    return role === 'owner' || role === 'supervisor';
+  if (nextStatus === 'pending_supervisor') {
+    return (
+      role === 'elaboro' &&
+      getSheetOwnerId(sheet) === userId &&
+      (current === 'draft' || current === 'rejected')
+    );
   }
-  if (nextStatus === 'authorized') {
-    return role === 'owner' || role === 'meli';
+  if (nextStatus === 'pending_meli') {
+    return (
+      role === 'supervisor' &&
+      current === 'pending_supervisor' &&
+      canAccessSheetSite(role, sheet.siteId, assignedSiteIds)
+    );
+  }
+  if (nextStatus === 'pending_process2') {
+    return (
+      role === 'meli' &&
+      current === 'pending_meli' &&
+      canAccessSheetSite(role, sheet.siteId, assignedSiteIds)
+    );
+  }
+  if (nextStatus === 'pending_cliente') {
+    return role === 'operador' && current === 'pending_process2';
   }
   if (nextStatus === 'completed') {
-    return role === 'owner' || role === 'supervisor';
+    return role === 'cliente' && current === 'pending_cliente';
   }
   return false;
+}
+
+export function canRejectSheet(
+  role: UserRole,
+  sheet: Pick<ServiceSheet, 'status' | 'siteId'>,
+  assignedSiteIds: string[] = []
+): boolean {
+  const status = getSheetStatus(sheet);
+  if (role === 'admin') {
+    return (
+      status === 'pending_supervisor' ||
+      status === 'pending_meli' ||
+      status === 'pending_cliente'
+    );
+  }
+  if (role === 'supervisor' && status === 'pending_supervisor') {
+    return canAccessSheetSite(role, sheet.siteId, assignedSiteIds);
+  }
+  if (role === 'meli' && status === 'pending_meli') {
+    return canAccessSheetSite(role, sheet.siteId, assignedSiteIds);
+  }
+  if (role === 'cliente' && status === 'pending_cliente') return true;
+  return false;
+}
+
+export function firmaDisplayName(entry?: FirmaEntry | null): string | undefined {
+  if (!entry) return undefined;
+  const value = entry.value ?? entry.nombre ?? entry.nombre_probable;
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  return undefined;
+}
+
+/**
+ * First approval firma with filled !== true decides pending status.
+ * Per WEB_DEVELOPER_WORKFLOW.md §8.
+ */
+export function resolveStatusFromFirmas(
+  firmas?: SheetFirmas | null
+): ServiceSheetStatus {
+  if (!firmas || typeof firmas !== 'object') return 'pending_supervisor';
+
+  const gates: { key: string; status: ServiceSheetStatus }[] = [
+    { key: 'responsable_supervisor', status: 'pending_supervisor' },
+    { key: 'autoriza_melii', status: 'pending_meli' },
+    { key: 'recibio_y_entrego_operador', status: 'pending_process2' },
+    { key: 'recibio_cliente', status: 'pending_cliente' },
+  ];
+
+  let sawBooleanFilled = false;
+  for (const { key, status } of gates) {
+    const entry = firmas[key];
+    if (entry && typeof entry.filled === 'boolean') sawBooleanFilled = true;
+    if (!entry || entry.filled !== true) return status;
+  }
+
+  return sawBooleanFilled ? 'completed' : 'pending_supervisor';
+}
+
+export function applyFirmasToSheet(
+  sheet: ServiceSheet,
+  firmas?: SheetFirmas | null
+): ServiceSheet {
+  if (!firmas) return sheet;
+  const now = new Date().toISOString();
+  const next: ServiceSheet = { ...sheet, firmas };
+
+  const elaboro = firmaDisplayName(firmas.elaboro_plastict);
+  if (elaboro) {
+    next.elaboro = elaboro;
+    next.elaboroSignedAt = next.elaboroSignedAt ?? now;
+  }
+  const sup = firmaDisplayName(firmas.responsable_supervisor);
+  if (sup && firmas.responsable_supervisor?.filled === true) {
+    next.responsableSup = sup;
+    next.supervisorSignedAt = next.supervisorSignedAt ?? now;
+  }
+  const meli = firmaDisplayName(firmas.autoriza_melii);
+  if (meli && firmas.autoriza_melii?.filled === true) {
+    next.autoriza = meli;
+    next.meliSignedAt = next.meliSignedAt ?? now;
+  }
+  const op = firmaDisplayName(firmas.recibio_y_entrego_operador);
+  if (op && firmas.recibio_y_entrego_operador?.filled === true) {
+    next.recibio = op;
+    next.entrega = op;
+    next.operadorSignedAt = next.operadorSignedAt ?? now;
+  }
+  const cliente = firmaDisplayName(firmas.recibio_cliente);
+  if (cliente && firmas.recibio_cliente?.filled === true) {
+    next.recibe = cliente;
+    next.clienteSignedAt = next.clienteSignedAt ?? now;
+  }
+  return next;
 }
 
 export function validateSheetForStatus(
   sheet: ServiceSheet,
   status: ServiceSheetStatus
 ): string | null {
-  if (status === 'validated') {
-    if (!sheet.operatorName?.trim()) return 'operatorName';
-    if (!sheet.vehiclePlates?.trim()) return 'vehiclePlates';
-    if (!sheet.sealNumber?.trim()) return 'sealNumber';
-    if (!sheet.materials?.some((m) => (m.quantity ?? 0) > 0 || m.selected)) {
-      return 'materials';
-    }
+  const target = normalizeSheetStatus(status);
+  if (
+    target === 'pending_supervisor' ||
+    target === 'pending_meli' ||
+    target === 'draft'
+  ) {
+    if (!sheet.folio?.trim() && !sheet.codigo?.trim()) return 'folio';
   }
-  if (status === 'authorized') {
-    if (!sheet.elaboro?.trim()) return 'elaboro';
-    if (!sheet.responsableSup?.trim()) return 'responsableSup';
-    if (!sheet.autoriza?.trim()) return 'autoriza';
+  if (target === 'pending_cliente') {
+    if (!(sheet.recibio?.trim() || sheet.entrega?.trim())) return 'recibio';
   }
-  if (status === 'completed') {
-    if (!(sheet.recibio?.trim() || sheet.recibe?.trim())) return 'recibio';
+  if (target === 'completed') {
+    if (!sheet.recibe?.trim() && !sheet.clienteSignedAt) return 'recibe';
   }
   return null;
 }
@@ -394,6 +713,7 @@ export function createEmptyMaterialMap(): Record<MaterialType, number> {
     TUBO_CARTON: 0,
     ORGANICOS: 0,
     CHATARRA: 0,
+    OTRO: 0,
   };
 }
 
@@ -866,6 +1186,25 @@ export function updateSheetMaterialUnitOfMeasure(
     unitOfMeasure: code,
     unit: code,
   });
+}
+
+/** Resolve Firestore measure unit code (e.g. bulk) back to a UI option label. */
+export function resolveUnitOfMeasureOption(
+  stored?: string,
+  options: readonly string[] = ALL_UNIT_OF_MEASURE_OPTIONS
+): string {
+  if (!stored) return '';
+  const match = options.find((option) => matchesUnitOption(stored, option));
+  return match ?? '';
+}
+
+/** Resolve Firestore packagingType (e.g. dryBox) back to a UI option label. */
+export function resolvePackagingOption(packagingType?: string): string {
+  if (!packagingType) return '';
+  const match = SERVICE_SHEET_UNIT_OPTIONS.find((option) =>
+    matchesUnitOption(packagingType, option)
+  );
+  return match ?? '';
 }
 
 /** Updates sheet-level packagingType (Caja seca / dryBox, …). */

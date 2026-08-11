@@ -28,7 +28,7 @@ export function UsersPage() {
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   const roleColors: Record<UserRole, string> = {
-    owner: 'bg-purple-50 text-purple-700',
+    admin: 'bg-purple-50 text-purple-700',
     supervisor: 'bg-sky-50 text-sky-700',
     elaboro: 'bg-surface-100 text-surface-600',
     cliente: 'bg-amber-50 text-amber-800',

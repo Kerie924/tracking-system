@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyCPB0DVabvtqnCJCQVScR8NzWRpWaxXuHo',
@@ -15,12 +16,18 @@ const firebaseConfig = {
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const firestore = getFirestore(app);
+export const storage = getStorage(app);
 
 /** Firestore collection names (must match mobile app) */
 export const FIRESTORE_USERS_COLLECTION = 'users';
 export const FIRESTORE_SERVICE_SHEETS_COLLECTION = 'serviceSheets';
 export const FIRESTORE_CHECKINS_COLLECTION = 'checkins';
 export const FIRESTORE_ROLE_CHANGE_REQUESTS_COLLECTION = 'roleChangeRequests';
+export const FIRESTORE_SITE_CHANGE_REQUESTS_COLLECTION = 'siteChangeRequests';
+export const FIRESTORE_SITES_COLLECTION = 'sites';
+export const FIRESTORE_MATERIALS_COLLECTION = 'materials';
+export const FIRESTORE_MEASURE_UNITS_COLLECTION = 'measureUnits';
+export const FIRESTORE_TRANSPORT_UNITS_COLLECTION = 'transportUnits';
 
 if (typeof window !== 'undefined') {
   import('firebase/analytics')

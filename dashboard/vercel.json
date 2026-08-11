@@ -13,5 +13,11 @@
       ]
     }
   ],
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/api/ocr",
+      "destination": "https://plastictrade-image-fetcher-production.up.railway.app/process"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }

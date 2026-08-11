@@ -1,20 +1,25 @@
 import {
   collection,
-  collectionGroup,
   doc,
   getDoc,
+  getDocs,
   setDoc,
   updateDoc,
+  deleteDoc,
   onSnapshot,
+  query,
+  where,
   type DocumentData,
+  type Unsubscribe,
 } from 'firebase/firestore';
 import {
   firestore,
   FIRESTORE_USERS_COLLECTION,
   FIRESTORE_SERVICE_SHEETS_COLLECTION,
   FIRESTORE_ROLE_CHANGE_REQUESTS_COLLECTION,
+  FIRESTORE_SITE_CHANGE_REQUESTS_COLLECTION,
+  FIRESTORE_SITES_COLLECTION,
 } from '@/lib/firebase';
-import { DEV_ALL_OWNER } from '@/lib/config';
 import type {
   ServiceSheet,
   UserProfile,
@@ -23,30 +28,84 @@ import type {
   ServiceSheetStatus,
   RoleChangeRequest,
   RoleChangeRequestStatus,
+  SiteChangeRequest,
+  CatalogSite,
+  SheetFirmas,
+  FirmaEntry,
 } from '@/types';
 import {
   createEmptyMaterialMap,
-  isLegacyRole,
+  FALLBACK_SITES,
   normalizeMaterialType,
   normalizeSheetStatus,
   normalizeUserRole,
   parseServiceSheetMaterials,
+  REQUESTABLE_ROLES,
   unitOfMeasureToFirestoreCode,
 } from '@/types';
+
+function parseFirmaEntry(raw: unknown): FirmaEntry | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const data = raw as Record<string, unknown>;
+  const entry: FirmaEntry = {};
+  if (typeof data.filled === 'boolean') entry.filled = data.filled;
+  if (data.value === null || typeof data.value === 'string') {
+    entry.value = data.value as string | null;
+  }
+  if (data.nombre === null || typeof data.nombre === 'string') {
+    entry.nombre = data.nombre as string | null;
+  }
+  if (data.nombre_probable === null || typeof data.nombre_probable === 'string') {
+    entry.nombre_probable = data.nombre_probable as string | null;
+  }
+  return entry;
+}
+
+function parseFirmas(raw: unknown): SheetFirmas | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const result: SheetFirmas = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    result[key] = parseFirmaEntry(value);
+  }
+  return result;
+}
+
+function parseAssignedSiteIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((id): id is string => typeof id === 'string' && id.length > 0);
+}
+
+function parseUserProfile(docId: string, data: DocumentData): UserProfile {
+  return {
+    id: docId,
+    name: data.name ?? data.email?.split('@')[0] ?? docId.slice(0, 8),
+    email: data.email ?? '',
+    role: normalizeUserRole(data.role),
+    language: (data.language ?? 'es') as Language,
+    createdAt: data.createdAt ?? '',
+    assignedSiteIds: parseAssignedSiteIds(data.assignedSiteIds),
+    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+  };
+}
 
 function parseServiceSheet(
   docId: string,
   data: DocumentData,
-  pathUserId: string,
+  fallbackUserId = '',
   userName?: string,
   userEmail?: string
 ): ServiceSheet {
   const createdBy =
     typeof data.createdBy === 'string' && data.createdBy
       ? data.createdBy
-      : pathUserId;
+      : fallbackUserId;
   const createdByName =
     typeof data.createdByName === 'string' ? data.createdByName : userName;
+
+  const sheetJson =
+    data.sheetJson && typeof data.sheetJson === 'object' && !Array.isArray(data.sheetJson)
+      ? (data.sheetJson as Record<string, unknown>)
+      : undefined;
 
   return {
     id: typeof data.id === 'string' && data.id ? data.id : docId,
@@ -73,6 +132,11 @@ function parseServiceSheet(
     siteId: data.siteId,
     siteName: data.siteName,
     source: data.source,
+    photoUri: typeof data.photoUri === 'string' ? data.photoUri : undefined,
+    sheetJson,
+    firmas: parseFirmas(data.firmas),
+    rejectionReason:
+      typeof data.rejectionReason === 'string' ? data.rejectionReason : undefined,
     trailerPlates: data.trailerPlates,
     vehiclePlates: data.vehiclePlates,
     latitude: data.latitude,
@@ -101,32 +165,63 @@ function userDocRef(userId: string) {
   return doc(firestore, FIRESTORE_USERS_COLLECTION, userId);
 }
 
-function extractUserIdFromPath(path: string): string {
-  const parts = path.split('/');
-  const usersIndex = parts.indexOf(FIRESTORE_USERS_COLLECTION);
-  return usersIndex >= 0 ? parts[usersIndex + 1] ?? '' : '';
+function serviceSheetDocRef(sheetId: string) {
+  return doc(firestore, FIRESTORE_SERVICE_SHEETS_COLLECTION, sheetId);
 }
 
+function sortSheetsByNewest(sheets: ServiceSheet[]) {
+  sheets.sort(
+    (a, b) =>
+      new Date(b.createdAt || b.fecha).getTime() -
+      new Date(a.createdAt || a.fecha).getTime()
+  );
+  return sheets;
+}
+
+/**
+ * Subscribe to top-level `serviceSheets`. Per WEB_DEVELOPER_WORKFLOW, every
+ * signed-in user can view all sheets. Optional `createdBy` filter is available
+ * for elaboro-scoped views but all sheets is preferred.
+ */
 export function subscribeToServiceSheetsCollection(
   options: {
     userId: string;
-    canViewAllSheets: boolean;
+    /** Always treated as true — all signed-in users see the collection. */
+    canViewAllSheets?: boolean;
     userName?: string;
     userEmail?: string;
+    /** Optional: filter to sheets created by this uid (prefer all sheets). */
+    createdBy?: string;
   },
   onData: (sheets: ServiceSheet[]) => void,
   onError?: (error: Error) => void
-) {
-  if (options.canViewAllSheets || DEV_ALL_OWNER) {
-    return subscribeToAllServiceSheets(onData, onError);
-  }
+): Unsubscribe {
+  const sheetsRef = collection(firestore, FIRESTORE_SERVICE_SHEETS_COLLECTION);
+  const sheetsQuery = options.createdBy
+    ? query(sheetsRef, where('createdBy', '==', options.createdBy))
+    : sheetsRef;
 
-  return subscribeToUserServiceSheets(
-    options.userId,
-    options.userName,
-    options.userEmail,
-    onData,
-    onError
+  return onSnapshot(
+    sheetsQuery,
+    (snapshot) => {
+      try {
+        const sheets = sortSheetsByNewest(
+          snapshot.docs.map((d) =>
+            parseServiceSheet(
+              d.id,
+              d.data(),
+              options.userId,
+              options.userName,
+              options.userEmail
+            )
+          )
+        );
+        onData(sheets);
+      } catch (err) {
+        onError?.(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+    (err) => onError?.(err)
   );
 }
 
@@ -139,57 +234,6 @@ export function subscribeToServiceSheets(
   return subscribeToServiceSheetsCollection(options, onData, onError);
 }
 
-function subscribeToUserServiceSheets(
-  userId: string,
-  userName: string | undefined,
-  userEmail: string | undefined,
-  onData: (sheets: ServiceSheet[]) => void,
-  onError?: (error: Error) => void
-) {
-  return onSnapshot(
-    collection(
-      firestore,
-      FIRESTORE_USERS_COLLECTION,
-      userId,
-      FIRESTORE_SERVICE_SHEETS_COLLECTION
-    ),
-    (snapshot) => {
-      const sheets = snapshot.docs.map((d) =>
-        parseServiceSheet(d.id, d.data(), userId, userName, userEmail)
-      );
-      sheets.sort(
-        (a, b) =>
-          new Date(b.createdAt || b.fecha).getTime() -
-          new Date(a.createdAt || a.fecha).getTime()
-      );
-      onData(sheets);
-    },
-    (err) => onError?.(err)
-  );
-}
-
-function subscribeToAllServiceSheets(
-  onData: (sheets: ServiceSheet[]) => void,
-  onError?: (error: Error) => void
-) {
-  return onSnapshot(
-    collectionGroup(firestore, FIRESTORE_SERVICE_SHEETS_COLLECTION),
-    (snapshot) => {
-      const sheets = snapshot.docs.map((d) => {
-        const userId = extractUserIdFromPath(d.ref.path);
-        return parseServiceSheet(d.id, d.data(), userId);
-      });
-      sheets.sort(
-        (a, b) =>
-          new Date(b.createdAt || b.fecha).getTime() -
-          new Date(a.createdAt || a.fecha).getTime()
-      );
-      onData(sheets);
-    },
-    (err) => onError?.(err)
-  );
-}
-
 export function subscribeToUsers(
   onData: (users: UserProfile[]) => void,
   onError?: (error: Error) => void
@@ -197,17 +241,7 @@ export function subscribeToUsers(
   return onSnapshot(
     collection(firestore, FIRESTORE_USERS_COLLECTION),
     (snapshot) => {
-      const users = snapshot.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          name: data.name ?? data.email?.split('@')[0] ?? d.id.slice(0, 8),
-          email: data.email ?? '',
-          role: normalizeUserRole(data.role),
-          language: (data.language ?? 'es') as Language,
-          createdAt: data.createdAt ?? '',
-        };
-      });
+      const users = snapshot.docs.map((d) => parseUserProfile(d.id, d.data()));
       users.sort((a, b) => a.name.localeCompare(b.name));
       onData(users);
     },
@@ -218,21 +252,13 @@ export function subscribeToUsers(
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   const snap = await getDoc(userDocRef(uid));
   if (!snap.exists()) return null;
-  const data = snap.data();
-  const role = normalizeUserRole(data.role);
-  if (isLegacyRole(data.role)) {
-    await setDoc(userDocRef(uid), { role }, { merge: true });
-  }
-  return {
-    id: snap.id,
-    name: data.name ?? '',
-    email: data.email ?? '',
-    role,
-    language: (data.language ?? 'es') as Language,
-    createdAt: data.createdAt ?? '',
-  };
+  return parseUserProfile(snap.id, snap.data());
 }
 
+/**
+ * Ensure a users/{uid} doc exists. Does not write `role` or `assignedSiteIds`
+ * on update — those are admin/Cloud Function fields under current rules.
+ */
 export async function ensureUserProfile(
   uid: string,
   email: string,
@@ -242,56 +268,65 @@ export async function ensureUserProfile(
   const snap = await getDoc(ref);
 
   if (!snap.exists()) {
+    const now = new Date().toISOString();
     const profile: Omit<UserProfile, 'id'> = {
-      name: displayName || email.split('@')[0],
+      name: displayName || email.split('@')[0] || 'User',
       email,
       role: 'elaboro',
       language: 'es',
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      assignedSiteIds: [],
+      updatedAt: now,
     };
     await setDoc(ref, profile);
     return { id: uid, ...profile };
   }
 
   const data = snap.data();
-  const updates: Record<string, string> = {};
-  const role = normalizeUserRole(data.role);
-  if (isLegacyRole(data.role) || !data.role) updates.role = role;
+  // Safe self-updates only (not role / assignedSiteIds).
+  const updates: Record<string, unknown> = {};
   if (!data.language) updates.language = 'es';
-  if (!data.email) updates.email = email;
+  if (!data.email && email) updates.email = email;
   if (!data.name && displayName) updates.name = displayName;
+
   if (Object.keys(updates).length > 0) {
-    await setDoc(ref, updates, { merge: true });
+    updates.updatedAt = new Date().toISOString();
+    try {
+      await setDoc(ref, updates, { merge: true });
+    } catch {
+      // Profile still usable with in-memory defaults if merge is denied.
+    }
   }
 
-  return {
-    id: uid,
-    name: data.name ?? displayName ?? '',
-    email: data.email ?? email,
-    role: (updates.role as UserRole | undefined) ?? role,
-    language: (updates.language ?? data.language ?? 'es') as Language,
-    createdAt: data.createdAt ?? '',
-  };
+  return parseUserProfile(uid, { ...data, ...updates });
 }
 
 export async function updateUserProfile(
   uid: string,
-  data: Partial<Pick<UserProfile, 'name' | 'language'>>
+  data: Partial<Pick<UserProfile, 'name' | 'language' | 'assignedSiteIds'>>
 ): Promise<void> {
-  await updateDoc(userDocRef(uid), data);
+  await updateDoc(userDocRef(uid), {
+    ...data,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export async function updateUserRole(uid: string, role: UserRole): Promise<void> {
-  await updateDoc(userDocRef(uid), { role });
+  await updateDoc(userDocRef(uid), {
+    role,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export function computeStatsFromSheets(sheets: ServiceSheet[]) {
   const today = new Date().toISOString().split('T')[0];
   const byMaterial = createEmptyMaterialMap();
+  const byMaterialKg = createEmptyMaterialMap();
   const bySite: Record<string, number> = {};
   const userIds = new Set<string>();
   const siteIds = new Set<string>();
   let totalQuantity = 0;
+  let totalKilograms = 0;
 
   for (const sheet of sheets) {
     userIds.add(sheet.userId);
@@ -303,6 +338,11 @@ export function computeStatsFromSheets(sheets: ServiceSheet[]) {
       if (key) {
         byMaterial[key] += m.quantity || 0;
         totalQuantity += m.quantity || 0;
+        const kg = typeof m.kilograms === 'number' && Number.isFinite(m.kilograms)
+          ? m.kilograms
+          : 0;
+        byMaterialKg[key] += kg;
+        totalKilograms += kg;
       }
     }
   }
@@ -313,9 +353,11 @@ export function computeStatsFromSheets(sheets: ServiceSheet[]) {
       (s) => s.fecha === today || s.createdAt?.startsWith(today)
     ).length,
     totalQuantity,
+    totalKilograms,
     activeSites: siteIds.size || Object.keys(bySite).length,
     activeUsers: userIds.size,
     byMaterial,
+    byMaterialKg,
     bySite,
   };
 }
@@ -368,25 +410,6 @@ export function computeMaterialTrendsFromSheets(sheets: ServiceSheet[], days = 7
   return result;
 }
 
-function serviceSheetDocRef(userId: string, sheetId: string) {
-  return doc(
-    firestore,
-    FIRESTORE_USERS_COLLECTION,
-    userId,
-    FIRESTORE_SERVICE_SHEETS_COLLECTION,
-    sheetId
-  );
-}
-
-function serviceSheetsCollectionRef(userId: string) {
-  return collection(
-    firestore,
-    FIRESTORE_USERS_COLLECTION,
-    userId,
-    FIRESTORE_SERVICE_SHEETS_COLLECTION
-  );
-}
-
 export function serviceSheetToFirestorePayload(
   sheet: ServiceSheet
 ): DocumentData {
@@ -414,6 +437,7 @@ export function serviceSheetToFirestorePayload(
         if (m.kilograms != null && Number.isFinite(m.kilograms)) {
           entry.kilograms = m.kilograms;
         }
+        if (m.customMaterialName) entry.customMaterialName = m.customMaterialName;
         return entry;
       })
       .filter(Boolean),
@@ -422,6 +446,10 @@ export function serviceSheetToFirestorePayload(
   if (sheet.id) payload.id = sheet.id;
   if (sheet.createdByName) payload.createdByName = sheet.createdByName;
   if (sheet.packagingType) payload.packagingType = sheet.packagingType;
+  if (sheet.photoUri) payload.photoUri = sheet.photoUri;
+  if (sheet.sheetJson) payload.sheetJson = sheet.sheetJson;
+  if (sheet.firmas) payload.firmas = sheet.firmas;
+  if (sheet.rejectionReason) payload.rejectionReason = sheet.rejectionReason;
 
   const optionalFields = [
     'autoriza',
@@ -469,27 +497,23 @@ export function serviceSheetToFirestorePayload(
   return payload;
 }
 
-export async function createServiceSheet(
-  userId: string,
-  sheet: ServiceSheet
-): Promise<string> {
-  const docRef = doc(serviceSheetsCollectionRef(userId));
+export async function createServiceSheet(sheet: ServiceSheet): Promise<string> {
+  const id = sheet.id?.startsWith('sheet-') ? sheet.id : `sheet-${Date.now()}`;
   const payload = serviceSheetToFirestorePayload({
     ...sheet,
-    id: sheet.id || docRef.id,
-    createdBy: sheet.createdBy || userId,
+    id,
+    createdBy: sheet.createdBy || sheet.userId,
   });
-  await setDoc(docRef, payload);
-  return docRef.id;
+  await setDoc(serviceSheetDocRef(id), payload);
+  return id;
 }
 
 export async function updateServiceSheet(
-  userId: string,
   sheetId: string,
   sheet: ServiceSheet
 ): Promise<void> {
   await setDoc(
-    serviceSheetDocRef(userId, sheetId),
+    serviceSheetDocRef(sheetId),
     serviceSheetToFirestorePayload({ ...sheet, id: sheetId }),
     { merge: true }
   );
@@ -517,6 +541,8 @@ function parseRoleChangeRequest(
     reviewedAt: data.reviewedAt,
     reviewedBy: data.reviewedBy,
     reviewedByName: data.reviewedByName,
+    rejectionReason:
+      typeof data.rejectionReason === 'string' ? data.rejectionReason : undefined,
   };
 }
 
@@ -543,7 +569,8 @@ export function subscribeToRoleChangeRequests(
 export async function reviewRoleChangeRequest(
   requestId: string,
   decision: 'approved' | 'rejected',
-  reviewer: { uid: string; name?: string }
+  reviewer: { uid: string; name?: string },
+  rejectionReason?: string
 ): Promise<void> {
   const ref = doc(
     firestore,
@@ -555,12 +582,17 @@ export async function reviewRoleChangeRequest(
   const data = snap.data();
   const now = new Date().toISOString();
 
-  await updateDoc(ref, {
+  const update: DocumentData = {
     status: decision,
     reviewedAt: now,
     reviewedBy: reviewer.uid,
     reviewedByName: reviewer.name ?? '',
-  });
+  };
+  if (decision === 'rejected' && rejectionReason) {
+    update.rejectionReason = rejectionReason;
+  }
+
+  await updateDoc(ref, update);
 
   if (decision === 'approved' && data.userId && data.requestedRole) {
     await updateUserRole(
@@ -569,3 +601,347 @@ export async function reviewRoleChangeRequest(
     );
   }
 }
+
+export async function createRoleChangeRequest(input: {
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  currentRole: UserRole | string;
+  requestedRole: UserRole | string;
+}): Promise<string> {
+  if (!REQUESTABLE_ROLES.includes(normalizeUserRole(input.requestedRole))) {
+    throw new Error('Requested role is not allowed');
+  }
+  if (normalizeUserRole(input.requestedRole) === 'admin') {
+    throw new Error('Admin role cannot be requested');
+  }
+
+  const pending = await getPendingRoleRequestForUser(input.userId);
+  if (pending) {
+    throw new Error('You already have a pending role request');
+  }
+
+  const id = `role-req-${Date.now()}`;
+  const payload: DocumentData = {
+    id,
+    userId: input.userId,
+    userName: input.userName ?? '',
+    userEmail: input.userEmail ?? '',
+    currentRole: input.currentRole,
+    requestedRole: normalizeUserRole(input.requestedRole),
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+  await setDoc(doc(firestore, FIRESTORE_ROLE_CHANGE_REQUESTS_COLLECTION, id), payload);
+  return id;
+}
+
+export async function getPendingRoleRequestForUser(
+  userId: string
+): Promise<RoleChangeRequest | null> {
+  const snapshot = await getDocs(
+    query(
+      collection(firestore, FIRESTORE_ROLE_CHANGE_REQUESTS_COLLECTION),
+      where('userId', '==', userId)
+    )
+  );
+  const pending = snapshot.docs
+    .map((d) => parseRoleChangeRequest(d.id, d.data()))
+    .find((r) => r.status === 'pending');
+  return pending ?? null;
+}
+
+export function subscribeToMyRoleChangeRequests(
+  userId: string,
+  onData: (requests: RoleChangeRequest[]) => void,
+  onError?: (error: Error) => void
+) {
+  return onSnapshot(
+    query(
+      collection(firestore, FIRESTORE_ROLE_CHANGE_REQUESTS_COLLECTION),
+      where('userId', '==', userId)
+    ),
+    (snapshot) => {
+      const requests = snapshot.docs.map((d) =>
+        parseRoleChangeRequest(d.id, d.data())
+      );
+      requests.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      onData(requests);
+    },
+    (err) => onError?.(err)
+  );
+}
+
+export async function cancelRoleChangeRequest(
+  requestId: string,
+  userId: string
+): Promise<void> {
+  const ref = doc(firestore, FIRESTORE_ROLE_CHANGE_REQUESTS_COLLECTION, requestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Request not found');
+  const data = snap.data();
+  if (data.userId !== userId) throw new Error('Not allowed');
+  if (data.status !== 'pending') throw new Error('Only pending requests can be cancelled');
+  await deleteDoc(ref);
+}
+
+function parseSiteChangeRequest(
+  docId: string,
+  data: DocumentData
+): SiteChangeRequest {
+  const status = data.status;
+  const normalizedStatus: RoleChangeRequestStatus =
+    status === 'approved' || status === 'rejected' || status === 'pending'
+      ? status
+      : 'pending';
+
+  return {
+    id: typeof data.id === 'string' && data.id ? data.id : docId,
+    userId: data.userId ?? '',
+    userName: data.userName,
+    userEmail: data.userEmail,
+    currentSiteIds: Array.isArray(data.currentSiteIds)
+      ? data.currentSiteIds.filter((x: unknown): x is string => typeof x === 'string')
+      : [],
+    requestedSiteIds: Array.isArray(data.requestedSiteIds)
+      ? data.requestedSiteIds.filter((x: unknown): x is string => typeof x === 'string')
+      : [],
+    status: normalizedStatus,
+    createdAt: data.createdAt ?? '',
+    reviewedAt: data.reviewedAt,
+    reviewedBy: data.reviewedBy,
+    reviewedByName: data.reviewedByName,
+    rejectionReason:
+      typeof data.rejectionReason === 'string' ? data.rejectionReason : undefined,
+  };
+}
+
+export function subscribeToSiteChangeRequests(
+  onData: (requests: SiteChangeRequest[]) => void,
+  onError?: (error: Error) => void
+) {
+  return onSnapshot(
+    collection(firestore, FIRESTORE_SITE_CHANGE_REQUESTS_COLLECTION),
+    (snapshot) => {
+      const requests = snapshot.docs.map((d) =>
+        parseSiteChangeRequest(d.id, d.data())
+      );
+      requests.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      onData(requests);
+    },
+    (err) => onError?.(err)
+  );
+}
+
+export function subscribeToMySiteChangeRequests(
+  userId: string,
+  onData: (requests: SiteChangeRequest[]) => void,
+  onError?: (error: Error) => void
+) {
+  return onSnapshot(
+    query(
+      collection(firestore, FIRESTORE_SITE_CHANGE_REQUESTS_COLLECTION),
+      where('userId', '==', userId)
+    ),
+    (snapshot) => {
+      const requests = snapshot.docs.map((d) =>
+        parseSiteChangeRequest(d.id, d.data())
+      );
+      requests.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      onData(requests);
+    },
+    (err) => onError?.(err)
+  );
+}
+
+export async function createSiteChangeRequest(input: {
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  currentSiteIds: string[];
+  requestedSiteIds: string[];
+}): Promise<string> {
+  if (!Array.isArray(input.requestedSiteIds) || input.requestedSiteIds.length === 0) {
+    throw new Error('Select at least one site');
+  }
+
+  const pendingSnap = await getDocs(
+    query(
+      collection(firestore, FIRESTORE_SITE_CHANGE_REQUESTS_COLLECTION),
+      where('userId', '==', input.userId)
+    )
+  );
+  const hasPending = pendingSnap.docs
+    .map((d) => parseSiteChangeRequest(d.id, d.data()))
+    .some((r) => r.status === 'pending');
+  if (hasPending) throw new Error('You already have a pending site request');
+
+  const id = `site-req-${Date.now()}`;
+  const payload: DocumentData = {
+    id,
+    userId: input.userId,
+    userName: input.userName ?? '',
+    userEmail: input.userEmail ?? '',
+    currentSiteIds: input.currentSiteIds,
+    requestedSiteIds: input.requestedSiteIds,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+  await setDoc(doc(firestore, FIRESTORE_SITE_CHANGE_REQUESTS_COLLECTION, id), payload);
+  return id;
+}
+
+export async function cancelSiteChangeRequest(
+  requestId: string,
+  userId: string
+): Promise<void> {
+  const ref = doc(firestore, FIRESTORE_SITE_CHANGE_REQUESTS_COLLECTION, requestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Request not found');
+  const data = snap.data();
+  if (data.userId !== userId) throw new Error('Not allowed');
+  if (data.status !== 'pending') throw new Error('Only pending requests can be cancelled');
+  await deleteDoc(ref);
+}
+
+export async function reviewSiteChangeRequest(
+  requestId: string,
+  decision: 'approved' | 'rejected',
+  reviewer: { uid: string; name?: string },
+  rejectionReason?: string
+): Promise<void> {
+  const ref = doc(firestore, FIRESTORE_SITE_CHANGE_REQUESTS_COLLECTION, requestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Site change request not found');
+  const data = snap.data();
+  const now = new Date().toISOString();
+
+  const update: DocumentData = {
+    status: decision,
+    reviewedAt: now,
+    reviewedBy: reviewer.uid,
+    reviewedByName: reviewer.name ?? '',
+  };
+  if (decision === 'rejected' && rejectionReason) {
+    update.rejectionReason = rejectionReason;
+  }
+  await updateDoc(ref, update);
+
+  if (decision === 'approved' && data.userId && Array.isArray(data.requestedSiteIds)) {
+    await updateDoc(userDocRef(data.userId), {
+      assignedSiteIds: data.requestedSiteIds,
+      updatedAt: now,
+    });
+  }
+}
+
+/** Admin direct override of a user's assigned sites. */
+export async function updateUserAssignedSites(
+  userId: string,
+  assignedSiteIds: string[]
+): Promise<void> {
+  await updateDoc(userDocRef(userId), {
+    assignedSiteIds,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function parseCatalogSite(docId: string, data: DocumentData): CatalogSite {
+  const code =
+    typeof data.code === 'string' && data.code
+      ? data.code
+      : typeof data.formCodigo === 'string'
+        ? data.formCodigo
+        : docId;
+  const name =
+    typeof data.name === 'string' && data.name
+      ? data.name
+      : typeof data.labelEs === 'string'
+        ? data.labelEs
+        : code;
+
+  return {
+    id: docId,
+    code,
+    formCodigo: typeof data.formCodigo === 'string' ? data.formCodigo : undefined,
+    name,
+    labelEn: typeof data.labelEn === 'string' ? data.labelEn : undefined,
+    labelEs: typeof data.labelEs === 'string' ? data.labelEs : undefined,
+    sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : undefined,
+    active: data.active !== false,
+  };
+}
+
+export function subscribeToSites(
+  onData: (sites: CatalogSite[]) => void,
+  onError?: (error: Error) => void
+) {
+  return onSnapshot(
+    collection(firestore, FIRESTORE_SITES_COLLECTION),
+    (snapshot) => {
+      let sites = snapshot.docs
+        .map((d) => parseCatalogSite(d.id, d.data()))
+        .filter((s) => s.active !== false);
+      if (sites.length === 0) {
+        sites = [...FALLBACK_SITES];
+      }
+      sites.sort(
+        (a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999) || a.name.localeCompare(b.name)
+      );
+      onData(sites);
+    },
+    (err) => {
+      // Fall back so Profile/create still work offline of catalog rules.
+      onData([...FALLBACK_SITES]);
+      onError?.(err);
+    }
+  );
+}
+
+/** Admin: seed fallback sites into Firestore catalog if missing. */
+export async function seedDefaultSites(): Promise<number> {
+  let written = 0;
+  for (const site of FALLBACK_SITES) {
+    const ref = doc(firestore, FIRESTORE_SITES_COLLECTION, site.id);
+    const snap = await getDoc(ref);
+    if (snap.exists()) continue;
+    await setDoc(ref, {
+      code: site.code,
+      formCodigo: site.formCodigo ?? site.code,
+      name: site.name,
+      labelEn: site.labelEn ?? site.name,
+      labelEs: site.labelEs ?? site.name,
+      sortOrder: site.sortOrder ?? 0,
+      active: true,
+    });
+    written += 1;
+  }
+  return written;
+}
+
+export async function upsertCatalogSite(site: CatalogSite): Promise<void> {
+  const id = site.id || site.code.toLowerCase().replace(/\s+/g, '-');
+  await setDoc(
+    doc(firestore, FIRESTORE_SITES_COLLECTION, id),
+    {
+      code: site.code,
+      formCodigo: site.formCodigo ?? site.code,
+      name: site.name,
+      labelEn: site.labelEn ?? site.name,
+      labelEs: site.labelEs ?? site.name,
+      sortOrder: site.sortOrder ?? 0,
+      active: site.active !== false,
+    },
+    { merge: true }
+  );
+}
+
