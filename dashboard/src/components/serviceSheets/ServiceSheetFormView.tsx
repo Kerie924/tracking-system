@@ -23,12 +23,27 @@ import {
 const fieldInputClass =
   'w-full rounded border border-surface-200 bg-white px-2 py-1 text-xs font-semibold text-surface-900 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/30';
 
-function FieldValue({ value }: { value?: string | number | null }) {
+function FieldValue({
+  value,
+  className,
+}: {
+  value?: string | number | null;
+  className?: string;
+}) {
   const display =
     value === undefined || value === null || value === ''
       ? '—'
       : String(value);
-  return <span className="block text-xs font-semibold text-surface-900">{display}</span>;
+  return (
+    <span
+      className={cn(
+        'block text-xs font-semibold text-surface-900',
+        className
+      )}
+    >
+      {display}
+    </span>
+  );
 }
 
 function FormField({
@@ -44,7 +59,7 @@ function FormField({
   type?: string;
   className?: string;
 }) {
-  if (!editable) return <FieldValue value={value} />;
+  if (!editable) return <FieldValue value={value} className={className} />;
   return (
     <input
       type={type}
@@ -651,27 +666,69 @@ export function ServiceSheetFormView({
         </div>
       </FormSection>
 
-      <FormSection>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-          {[
-            { label: t.serviceSheet.preparedBy, field: 'elaboro' as const, value: sheet.elaboro },
-            { label: t.serviceSheet.supervisor, field: 'responsableSup' as const, value: sheet.responsableSup },
-            { label: t.serviceSheet.authorizedBy, field: 'autoriza' as const, value: sheet.autoriza },
-            { label: t.serviceSheet.receivedBy, field: 'recibio' as const, value: sheet.recibio ?? sheet.recibe },
-            { label: t.serviceSheet.deliveredBy, field: 'entrega' as const, value: sheet.entrega },
-            { label: t.serviceSheetForm.acceptedBy, field: 'recibe' as const, value: sheet.recibe },
-          ].map(({ label, field, value }) => (
-            <div key={label} className="border-r border-surface-200 last:border-r-0">
-              <SectionCell header className="border-x-0 border-t-0 text-center text-[10px] sm:text-[11px]">
-                {label}
-              </SectionCell>
-              <SectionCell className="min-h-[3rem] border-x-0 border-t-0 text-center">
+      <FormSection className="p-3 sm:p-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {(
+            [
+              {
+                title: t.serviceSheet.preparedBy,
+                role: t.serviceSheet.preparedByRole,
+                field: 'elaboro' as const,
+                value: sheet.elaboro,
+              },
+              {
+                title: t.serviceSheet.supervisor,
+                role: t.serviceSheet.supervisorRole,
+                field: 'responsableSup' as const,
+                value: sheet.responsableSup,
+              },
+              {
+                title: t.serviceSheet.authorizedBy,
+                role: t.serviceSheet.authorizedByRole,
+                field: 'autoriza' as const,
+                value: sheet.autoriza,
+              },
+              {
+                // Operador: recibio + entrega are the same person (one UI column).
+                title: t.serviceSheet.operatorReceivedDelivered,
+                role: t.serviceSheet.operatorReceivedDeliveredRole,
+                field: 'recibio' as const,
+                value: sheet.recibio || sheet.entrega,
+                syncEntrega: true,
+              },
+              {
+                title: t.serviceSheet.clientReceived,
+                role: t.serviceSheet.clientReceivedRole,
+                field: 'recibe' as const,
+                value: sheet.recibe,
+              },
+            ] as const
+          ).map(({ title, role, field, value, ...rest }) => (
+            <div
+              key={field}
+              className="flex min-h-[7.5rem] flex-col rounded-xl border border-surface-200 bg-gradient-to-b from-surface-50 to-white px-3 py-3 text-center shadow-sm"
+            >
+              <div className="mb-3">
+                <p className="text-[11px] font-semibold leading-snug text-surface-800 sm:text-xs">
+                  {title}
+                </p>
+                <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-brand-700">
+                  ({role})
+                </p>
+              </div>
+              <div className="mt-auto flex min-h-[2.75rem] items-center justify-center rounded-lg border border-dashed border-surface-200 bg-white px-2 py-2">
                 <FormField
                   value={value}
                   editable={editable}
-                  onChange={(v) => updateField(field, v)}
+                  className="border-0 bg-transparent text-center text-sm shadow-none focus:ring-0"
+                  onChange={(v) => {
+                    updateField(field, v);
+                    if ('syncEntrega' in rest && rest.syncEntrega) {
+                      updateField('entrega', v);
+                    }
+                  }}
                 />
-              </SectionCell>
+              </div>
             </div>
           ))}
         </div>

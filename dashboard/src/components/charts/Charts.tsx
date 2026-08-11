@@ -125,6 +125,7 @@ export function MaterialPieChart({ data, variant = 'light' }: MaterialPieProps) 
   }
 
   const isDark = variant === 'dark';
+  const total = chartData.reduce((sum, d) => sum + d.value, 0) || 1;
   const darkTooltip = {
     backgroundColor: '#0f172a',
     border: '1px solid rgba(255,255,255,0.1)',
@@ -134,33 +135,56 @@ export function MaterialPieChart({ data, variant = 'light' }: MaterialPieProps) 
   };
 
   const content = (
-    <ResponsiveContainer width="100%" height={isDark ? 320 : 220} minHeight={isDark ? 280 : 200}>
-      <PieChart>
-        <Pie
-          data={chartData}
-          cx="50%"
-          cy="50%"
-          innerRadius={isDark ? 80 : 60}
-          outerRadius={isDark ? 130 : 100}
-          paddingAngle={3}
-          dataKey="value"
-        >
-          {chartData.map((entry, index) => (
-            <Cell key={index} fill={entry.color} />
-          ))}
-        </Pie>
-        <Tooltip contentStyle={isDark ? darkTooltip : tooltipStyle} />
-        <Legend
-          verticalAlign="bottom"
-          iconType="circle"
-          formatter={(value) => (
-            <span className={isDark ? 'text-sm text-white/70' : 'text-sm text-surface-800/70'}>
-              {value}
+    <div className="flex flex-col gap-5">
+      <ResponsiveContainer width="100%" height={isDark ? 280 : 240} minHeight={isDark ? 260 : 220}>
+        <PieChart margin={{ top: 12, right: 12, bottom: 12, left: 12 }}>
+          <Pie
+            data={chartData}
+            cx="50%"
+            cy="50%"
+            innerRadius={isDark ? 72 : 58}
+            outerRadius={isDark ? 112 : 92}
+            paddingAngle={3}
+            dataKey="value"
+            stroke={isDark ? 'rgba(15,23,42,0.9)' : '#fff'}
+            strokeWidth={2}
+          >
+            {chartData.map((entry, index) => (
+              <Cell key={index} fill={entry.color} />
+            ))}
+          </Pie>
+          <Tooltip
+            contentStyle={isDark ? darkTooltip : tooltipStyle}
+            formatter={(value: number, name: string) => [
+              `${value.toLocaleString()} (${Math.round((value / total) * 100)}%)`,
+              name,
+            ]}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+
+      <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 px-1">
+        {chartData.map((entry) => (
+          <li key={entry.name} className="inline-flex max-w-full items-center gap-2">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: entry.color }}
+              aria-hidden
+            />
+            <span
+              className={
+                isDark
+                  ? 'truncate text-sm text-white/75'
+                  : 'truncate text-sm text-surface-700'
+              }
+              title={entry.name}
+            >
+              {entry.name}
             </span>
-          )}
-        />
-      </PieChart>
-    </ResponsiveContainer>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 
   if (isDark) {

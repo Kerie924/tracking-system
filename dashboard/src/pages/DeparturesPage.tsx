@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Select } from '@/components/ui/Input';
@@ -17,9 +17,10 @@ import { Modal, LoadingSpinner } from '@/components/ui/Modal';
 import { useServiceSheets } from '@/hooks/useFirestoreData';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTranslation } from '@/contexts/LanguageContext';
-import { getMaterialLabel, getStatusLabel } from '@/i18n/translations';
+import { getStatusLabel } from '@/i18n/translations';
 import {
   createServiceSheet,
+  subscribeToSites,
   updateServiceSheet,
 } from '@/services/firestoreData';
 import {
@@ -27,15 +28,17 @@ import {
   uploadSheetScan,
 } from '@/services/ocr';
 import {
+  canAccessSheetSite,
   canAdvanceSheetStatus,
   canEditSheet,
   canRejectSheet,
   applyStatusTransition,
   getNextSheetStatus,
   getSheetStatus,
-  MATERIAL_TYPES,
   SERVICE_SHEET_STATUSES,
+  siteDisplayName,
   validateSheetForStatus,
+  type CatalogSite,
   type ServiceSheet,
 } from '@/types';
 import { Process2Form } from '@/components/serviceSheets/Process2Form';
@@ -50,7 +53,8 @@ export function DeparturesPage() {
   const showCreateButton = !!user;
   const { sheets, loading, error } = useServiceSheets();
   const [search, setSearch] = useState('');
-  const [materialFilter, setMaterialFilter] = useState('');
+  const [siteFilter, setSiteFilter] = useState('');
+  const [sites, setSites] = useState<CatalogSite[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
   const [historyFilter, setHistoryFilter] = useState<
     'all' | 'completed' | 'process1' | 'rejected' | 'toApprove' | 'process2'
@@ -72,6 +76,8 @@ export function DeparturesPage() {
 
   const isCreating = createPhase != null;
 
+  useEffect(() => subscribeToSites(setSites), []);
+
   const filtered = useMemo(() => {
     return sheets.filter((s) => {
       const q = search.toLowerCase();
@@ -83,9 +89,20 @@ export function DeparturesPage() {
         (s.siteName?.toLowerCase().includes(q) ?? false) ||
         (s.userName?.toLowerCase().includes(q) ?? false);
 
-      const matchesMaterial =
-        !materialFilter ||
-        s.materials?.some((m) => m.materialType === materialFilter);
+      const matchesSite =
+        !siteFilter ||
+        s.siteId === siteFilter ||
+        s.codigo === siteFilter ||
+        s.siteName === siteFilter ||
+        sites.some(
+          (site) =>
+            site.id === siteFilter &&
+            (s.siteId === site.id ||
+              s.codigo === site.code ||
+              s.codigo === site.formCodigo ||
+              s.siteName === site.code ||
+              s.siteName === site.name)
+        );
 
       const status = getSheetStatus(s);
       const matchesStatus = !statusFilter || status === statusFilter;
@@ -102,17 +119,32 @@ export function DeparturesPage() {
         matchesHistory =
           status === 'pending_process2' || status === 'pending_cliente';
       } else if (historyFilter === 'toApprove') {
-        if (role === 'supervisor') matchesHistory = status === 'pending_supervisor';
-        else if (role === 'meli') matchesHistory = status === 'pending_meli';
-        else if (role === 'operador' || role === 'admin')
+        if (role === 'supervisor') {
+          matchesHistory =
+            status === 'pending_supervisor' &&
+            canAccessSheetSite(role, s, assignedSiteIds, sites);
+        } else if (role === 'meli') {
+          matchesHistory =
+            status === 'pending_meli' &&
+            canAccessSheetSite(role, s, assignedSiteIds, sites);
+        } else if (role === 'operador' || role === 'admin')
           matchesHistory = status === 'pending_process2';
         else if (role === 'cliente') matchesHistory = status === 'pending_cliente';
         else matchesHistory = false;
       }
 
-      return matchesSearch && matchesMaterial && matchesStatus && matchesHistory;
+      return matchesSearch && matchesSite && matchesStatus && matchesHistory;
     });
-  }, [sheets, search, materialFilter, statusFilter, historyFilter, role]);
+  }, [
+    sheets,
+    search,
+    siteFilter,
+    statusFilter,
+    historyFilter,
+    role,
+    assignedSiteIds,
+    sites,
+  ]);
 
   const modalOpen = isCreating || !!selected;
   const activeSheet = isEditing ? draft : selected;
@@ -135,14 +167,15 @@ export function DeparturesPage() {
       selected,
       user.uid,
       nextStatus,
-      assignedSiteIds
+      assignedSiteIds,
+      sites
     );
 
   const canRejectSelected =
     !!selected &&
     !isCreating &&
     !isEditing &&
-    canRejectSheet(role, selected, assignedSiteIds);
+    canRejectSheet(role, selected, assignedSiteIds, sites);
 
   const closeModal = () => {
     if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
@@ -317,7 +350,8 @@ export function DeparturesPage() {
         selected,
         user.uid,
         nextStatus,
-        assignedSiteIds
+        assignedSiteIds,
+        sites
       )
     ) {
       setSaveError(t.serviceSheet.statusBlocked);
@@ -437,13 +471,13 @@ export function DeparturesPage() {
             </div>
             <Select
               label=""
-              value={materialFilter}
-              onChange={(e) => setMaterialFilter(e.target.value)}
+              value={siteFilter}
+              onChange={(e) => setSiteFilter(e.target.value)}
               options={[
-                { value: '', label: t.common.allMaterials },
-                ...MATERIAL_TYPES.map((m) => ({
-                  value: m.id,
-                  label: getMaterialLabel(m.id, language),
+                { value: '', label: t.common.allSites },
+                ...sites.map((site) => ({
+                  value: site.id,
+                  label: `${siteDisplayName(site, language)} (${site.code})`,
                 })),
               ]}
             />

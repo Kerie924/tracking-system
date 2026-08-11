@@ -452,20 +452,61 @@ export function getNextSheetStatus(
 
 export function canAccessSheetSite(
   role: UserRole,
-  siteId: string | undefined,
-  assignedSiteIds: string[] = []
+  sheetOrSiteId:
+    | string
+    | undefined
+    | Pick<ServiceSheet, 'siteId' | 'codigo' | 'siteName'>,
+  assignedSiteIds: string[] = [],
+  sites: CatalogSite[] = FALLBACK_SITES
 ): boolean {
   if (role !== 'supervisor' && role !== 'meli') return true;
-  if (!siteId) return false;
-  return assignedSiteIds.includes(siteId);
+  if (!assignedSiteIds.length) return false;
+
+  const siteId =
+    typeof sheetOrSiteId === 'string' || sheetOrSiteId == null
+      ? sheetOrSiteId
+      : sheetOrSiteId.siteId;
+  const codigo =
+    typeof sheetOrSiteId === 'object' && sheetOrSiteId
+      ? sheetOrSiteId.codigo
+      : undefined;
+  const siteName =
+    typeof sheetOrSiteId === 'object' && sheetOrSiteId
+      ? sheetOrSiteId.siteName
+      : undefined;
+
+  if (!siteId && !codigo && !siteName) return false;
+
+  const assignedKeys = new Set<string>();
+  for (const id of assignedSiteIds) {
+    const raw = id.trim();
+    if (!raw) continue;
+    assignedKeys.add(raw.toLowerCase());
+    const site = matchCatalogSite(sites, raw);
+    if (site) {
+      assignedKeys.add(site.id.toLowerCase());
+      if (site.code) assignedKeys.add(site.code.toLowerCase());
+      if (site.formCodigo) assignedKeys.add(site.formCodigo.toLowerCase());
+    }
+  }
+
+  const candidates = [siteId, codigo, siteName]
+    .map((v) => v?.trim().toLowerCase())
+    .filter((v): v is string => !!v);
+
+  return candidates.some((c) => assignedKeys.has(c));
 }
 
 export function canAdvanceSheetStatus(
   role: UserRole,
-  sheet: Pick<ServiceSheet, 'userId' | 'createdBy' | 'status' | 'siteId'>,
+  sheet: Pick<
+    ServiceSheet,
+    'userId' | 'createdBy' | 'status' | 'siteId' | 'codigo' | 'siteName'
+  >,
   userId: string,
   nextStatus: ServiceSheetStatus,
-  assignedSiteIds: string[] = []
+  assignedSiteIds: string[] = [],
+  sites: CatalogSite[] = FALLBACK_SITES
 ): boolean {
   const current = getSheetStatus(sheet);
   if (getNextSheetStatus(current) !== nextStatus) return false;
@@ -482,14 +523,14 @@ export function canAdvanceSheetStatus(
     return (
       role === 'supervisor' &&
       current === 'pending_supervisor' &&
-      canAccessSheetSite(role, sheet.siteId, assignedSiteIds)
+      canAccessSheetSite(role, sheet, assignedSiteIds, sites)
     );
   }
   if (nextStatus === 'pending_process2') {
     return (
       role === 'meli' &&
       current === 'pending_meli' &&
-      canAccessSheetSite(role, sheet.siteId, assignedSiteIds)
+      canAccessSheetSite(role, sheet, assignedSiteIds, sites)
     );
   }
   if (nextStatus === 'pending_cliente') {
@@ -503,8 +544,9 @@ export function canAdvanceSheetStatus(
 
 export function canRejectSheet(
   role: UserRole,
-  sheet: Pick<ServiceSheet, 'status' | 'siteId'>,
-  assignedSiteIds: string[] = []
+  sheet: Pick<ServiceSheet, 'status' | 'siteId' | 'codigo' | 'siteName'>,
+  assignedSiteIds: string[] = [],
+  sites: CatalogSite[] = FALLBACK_SITES
 ): boolean {
   const status = getSheetStatus(sheet);
   if (role === 'admin') {
@@ -515,10 +557,10 @@ export function canRejectSheet(
     );
   }
   if (role === 'supervisor' && status === 'pending_supervisor') {
-    return canAccessSheetSite(role, sheet.siteId, assignedSiteIds);
+    return canAccessSheetSite(role, sheet, assignedSiteIds, sites);
   }
   if (role === 'meli' && status === 'pending_meli') {
-    return canAccessSheetSite(role, sheet.siteId, assignedSiteIds);
+    return canAccessSheetSite(role, sheet, assignedSiteIds, sites);
   }
   if (role === 'cliente' && status === 'pending_cliente') return true;
   return false;
