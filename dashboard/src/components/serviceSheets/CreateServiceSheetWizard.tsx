@@ -5,28 +5,27 @@ import { getMaterialLabel, getUnitLabel, getUnitOfMeasureLabel } from '@/i18n/tr
 import { cn } from '@/lib/utils';
 import { subscribeToSites } from '@/services/firestoreData';
 import {
-  MATERIAL_TYPES,
+  LOGISTICS_ACCOUNTS,
   SERVICE_SHEET_MATERIAL_ROWS,
   SERVICE_SHEET_UNIT_OPTIONS,
   createEmptyServiceSheet,
   getMaterialDetailsMap,
+  logisticsDisplayName,
   matchCatalogSite,
   resolvePackagingOption,
   resolveUnitOfMeasureOption,
   resolveStatusFromFirmas,
   siteDisplayName,
   toggleSheetMaterial,
-  updateSheetMaterialKilograms,
   updateSheetMaterialQuantity,
   updateSheetMaterialUnitOfMeasure,
   updateSheetPackagingType,
   type CatalogSite,
-  type MaterialType,
   type ServiceSheet,
 } from '@/types';
-import { Camera, Check, ChevronLeft, ChevronRight, FileEdit, Scale, Trash2 } from 'lucide-react';
+import { Camera, Check, ChevronLeft, ChevronRight, FileEdit, Trash2 } from 'lucide-react';
 
-type WizardStep = 'basic' | 'materials' | 'transport' | 'weigh' | 'review';
+type WizardStep = 'basic' | 'materials' | 'transport' | 'review';
 
 interface CreateServiceSheetWizardProps {
   initialSheet: ServiceSheet;
@@ -181,7 +180,6 @@ export function CreateServiceSheetWizard({
       { id: 'basic', label: t.createSheet.stepBasic },
       { id: 'materials', label: t.createSheet.stepMaterials },
       { id: 'transport', label: t.createSheet.stepTransport },
-      { id: 'weigh', label: t.createSheet.stepWeigh },
       { id: 'review', label: t.createSheet.stepReview },
     ];
     return base;
@@ -203,8 +201,6 @@ export function CreateServiceSheetWizard({
   const updateField = (field: keyof ServiceSheet, value: string) => {
     setSheet((s) => ({ ...s, [field]: value || undefined }));
   };
-
-  const totalKg = sheet.materials.reduce((sum, m) => sum + (m.kilograms ?? 0), 0);
 
   return (
     <div className="flex max-h-[85vh] flex-col">
@@ -249,6 +245,46 @@ export function CreateServiceSheetWizard({
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="block text-sm sm:col-span-2">
+              <span className="mb-1 block text-surface-600">{t.createSheet.logistics}</span>
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {LOGISTICS_ACCOUNTS.map((account) => {
+                  const selected = sheet.logisticsAccountId === account.id;
+                  return (
+                    <button
+                      key={account.id}
+                      type="button"
+                      onClick={() =>
+                        setSheet((s) => ({
+                          ...s,
+                          logisticsAccountId: account.id,
+                        }))
+                      }
+                      className={cn(
+                        'flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition',
+                        selected
+                          ? 'border-brand-600 bg-brand-50 text-brand-800'
+                          : 'border-surface-200 bg-white text-surface-700 hover:border-brand-300'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'inline-flex h-5 w-5 items-center justify-center rounded-full border-2',
+                          selected
+                            ? 'border-brand-700 bg-brand-600'
+                            : 'border-surface-400 bg-white'
+                        )}
+                      >
+                        {selected && (
+                          <Check className="h-3 w-3 text-white" strokeWidth={3.5} />
+                        )}
+                      </span>
+                      {logisticsDisplayName(account.id, language)}
+                    </button>
+                  );
+                })}
+              </div>
             </label>
             <label className="block text-sm">
               <span className="mb-1 block text-surface-600">{t.serviceSheet.folio}</span>
@@ -330,29 +366,6 @@ export function CreateServiceSheetWizard({
                       </option>
                     ))}
                   </select>
-                  <div className="relative w-28">
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
-                      disabled={!entry.matched}
-                      value={entry.matched ? entry.kilograms ?? '' : ''}
-                      onChange={(e) =>
-                        setSheet((s) =>
-                          updateSheetMaterialKilograms(
-                            s,
-                            row.id,
-                            Number(e.target.value) || 0
-                          )
-                        )
-                      }
-                      className={cn(fieldClass, 'pr-9 text-right')}
-                      placeholder={t.serviceSheetForm.kilogramsCol}
-                    />
-                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-surface-500">
-                      kg
-                    </span>
-                  </div>
                   {entry.matched && (
                     <button
                       type="button"
@@ -368,8 +381,7 @@ export function CreateServiceSheetWizard({
               );
             })}
             <div className="mt-4 rounded-xl border border-surface-200 p-3">
-              <p className="mb-2 flex items-center gap-2 text-sm font-medium text-surface-700">
-                <Scale className="h-4 w-4" />
+              <p className="mb-2 text-sm font-medium text-surface-700">
                 {t.serviceSheetForm.unitCol}
               </p>
               <p className="mb-2 text-xs text-surface-500">{t.createSheet.unitHint}</p>
@@ -415,12 +427,28 @@ export function CreateServiceSheetWizard({
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1 block text-surface-600">
-                {t.serviceSheetForm.operatorName}
+                {t.serviceSheetForm.entryTime}
               </span>
               <input
+                type="datetime-local"
                 className={fieldClass}
-                value={sheet.operatorName ?? ''}
-                onChange={(e) => updateField('operatorName', e.target.value)}
+                value={isoToLocal(sheet.siteEntryTime)}
+                onChange={(e) =>
+                  updateField('siteEntryTime', localToIso(e.target.value))
+                }
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-surface-600">
+                {t.serviceSheetForm.exitTime}
+              </span>
+              <input
+                type="datetime-local"
+                className={fieldClass}
+                value={isoToLocal(sheet.siteExitTime)}
+                onChange={(e) =>
+                  updateField('siteExitTime', localToIso(e.target.value))
+                }
               />
             </label>
             <label className="block text-sm">
@@ -434,7 +462,19 @@ export function CreateServiceSheetWizard({
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block text-surface-600">{t.serviceSheet.vehicle}</span>
+              <span className="mb-1 block text-surface-600">
+                {t.serviceSheetForm.operatorName}
+              </span>
+              <input
+                className={fieldClass}
+                value={sheet.operatorName ?? ''}
+                onChange={(e) => updateField('operatorName', e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-surface-600">
+                {t.serviceSheetForm.vehiclePlates}
+              </span>
               <input
                 className={fieldClass}
                 value={sheet.vehiclePlates ?? ''}
@@ -442,121 +482,25 @@ export function CreateServiceSheetWizard({
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block text-surface-600">{t.serviceSheet.trailer}</span>
+              <span className="mb-1 block text-surface-600">
+                {t.serviceSheetForm.trailerPlates}
+              </span>
               <input
                 className={fieldClass}
                 value={sheet.trailerPlates ?? ''}
                 onChange={(e) => updateField('trailerPlates', e.target.value)}
               />
             </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-surface-600">{t.serviceSheet.seal}</span>
+            <label className="block text-sm sm:col-span-2">
+              <span className="mb-1 block text-surface-600">
+                {t.serviceSheetForm.sealNumber}
+              </span>
               <input
                 className={fieldClass}
                 value={sheet.sealNumber ?? ''}
                 onChange={(e) => updateField('sealNumber', e.target.value)}
               />
             </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-surface-600">
-                {t.serviceSheetForm.siteEntryLabel}
-              </span>
-              <input
-                type="datetime-local"
-                className={fieldClass}
-                value={isoToLocal(sheet.siteEntryTime)}
-                onChange={(e) =>
-                  updateField('siteEntryTime', localToIso(e.target.value))
-                }
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-surface-600">
-                {t.serviceSheetForm.siteExitLabel}
-              </span>
-              <input
-                type="datetime-local"
-                className={fieldClass}
-                value={isoToLocal(sheet.siteExitTime)}
-                onChange={(e) =>
-                  updateField('siteExitTime', localToIso(e.target.value))
-                }
-              />
-            </label>
-          </div>
-        )}
-
-        {step === 'weigh' && (
-          <div className="space-y-4">
-            <p className="text-sm text-surface-600">{t.createSheet.weighHint}</p>
-            {(MATERIAL_TYPES.filter((m) => details[m.id].matched).length > 0
-              ? MATERIAL_TYPES.filter((m) => details[m.id].matched)
-              : MATERIAL_TYPES
-            ).map((m) => (
-              <label
-                key={m.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-surface-200 px-3 py-3 text-sm"
-              >
-                <span>{getMaterialLabel(m.id, language)}</span>
-                <div className="relative w-36">
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    className={cn(fieldClass, 'pr-10 text-right')}
-                    value={details[m.id].kilograms ?? ''}
-                    onChange={(e) =>
-                      setSheet((s) => {
-                        let next = s;
-                        if (!details[m.id].matched) {
-                          next = toggleSheetMaterial(next, m.id as MaterialType, true);
-                        }
-                        return updateSheetMaterialKilograms(
-                          next,
-                          m.id as MaterialType,
-                          Number(e.target.value) || 0
-                        );
-                      })
-                    }
-                  />
-                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-surface-500">
-                    kg
-                  </span>
-                </div>
-              </label>
-            ))}
-            <p className="text-sm font-semibold text-surface-800">
-              {t.createSheet.totalWeight}:{' '}
-              {totalKg.toLocaleString(language === 'en' ? 'en-US' : 'es-MX')} kg
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block text-sm">
-                <span className="mb-1 block text-surface-600">
-                  {t.serviceSheetForm.warehouseEntryLabel}
-                </span>
-                <input
-                  type="datetime-local"
-                  className={fieldClass}
-                  value={isoToLocal(sheet.warehouseEntryTime)}
-                  onChange={(e) =>
-                    updateField('warehouseEntryTime', localToIso(e.target.value))
-                  }
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-surface-600">
-                  {t.serviceSheetForm.warehouseExitLabel}
-                </span>
-                <input
-                  type="datetime-local"
-                  className={fieldClass}
-                  value={isoToLocal(sheet.warehouseExitTime)}
-                  onChange={(e) =>
-                    updateField('warehouseExitTime', localToIso(e.target.value))
-                  }
-                />
-              </label>
-            </div>
           </div>
         )}
 
@@ -575,6 +519,12 @@ export function CreateServiceSheetWizard({
                 <strong>{sheet.siteName || sheet.codigo || '—'}</strong>
               </p>
               <p>
+                {t.createSheet.logistics}:{' '}
+                <strong>
+                  {logisticsDisplayName(sheet.logisticsAccountId, language)}
+                </strong>
+              </p>
+              <p>
                 {t.serviceSheet.date}: <strong>{sheet.fecha || '—'}</strong>
               </p>
             </ReviewBlock>
@@ -588,7 +538,6 @@ export function CreateServiceSheetWizard({
                 <p key={String(m.materialType)}>
                   {getMaterialLabel(String(m.materialType), language)} — {m.quantity}{' '}
                   {m.unitOfMeasure || m.unit || ''}
-                  {m.kilograms != null ? ` / ${m.kilograms} kg` : ''}
                 </p>
               ))}
               <p>

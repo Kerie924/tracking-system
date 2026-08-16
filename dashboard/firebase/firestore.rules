@@ -58,10 +58,12 @@ service cloud.firestore {
         'draft',
         'pending_supervisor',
         'pending_meli',
+        'pending_logistics',
         'pending_process2',
         'pending_cliente',
         'completed',
-        'rejected'
+        'rejected',
+        'canceled'
       ];
     }
 
@@ -72,7 +74,13 @@ service cloud.firestore {
         && request.resource.data.role in ['elaboro', 'supervisor', 'meli', 'operador', 'cliente'];
       allow update: if signedIn() && (
         (request.auth.uid == userId
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'assignedSiteIds']))
+          && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['role', 'assignedSiteIds', 'assignedLogisticsIds']))
+        // Logistics users may self-assign logistics accounts (not role/sites).
+        || (request.auth.uid == userId
+          && isOperador()
+          && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['role', 'assignedSiteIds']))
         || isAdmin()
       );
       allow delete: if isAdmin();

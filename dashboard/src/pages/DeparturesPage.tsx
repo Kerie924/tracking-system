@@ -28,32 +28,38 @@ import {
   uploadSheetScan,
 } from '@/services/ocr';
 import {
+  canAccessLogisticsAccount,
   canAccessSheetSite,
   canAdvanceSheetStatus,
   canEditSheet,
+  canManageSheetTickets,
   canRejectSheet,
   applyStatusTransition,
   getNextSheetStatus,
   getSheetStatus,
+  LOGISTICS_ACCOUNTS,
+  logisticsDisplayName,
   SERVICE_SHEET_STATUSES,
   siteDisplayName,
   validateSheetForStatus,
   type CatalogSite,
   type ServiceSheet,
 } from '@/types';
-import { Process2Form } from '@/components/serviceSheets/Process2Form';
+import { LogisticsTicketsForm } from '@/components/serviceSheets/LogisticsTicketsForm';
 import { Camera, Plus, Search } from 'lucide-react';
 
 type CreatePhase = 'picker' | 'ocr' | 'wizard';
 
 export function DeparturesPage() {
   const { t, language } = useTranslation();
-  const { user, profile, role, assignedSiteIds } = useAuth();
+  const { user, profile, role, assignedSiteIds, assignedLogisticsIds } =
+    useAuth();
   // Always show create CTA when signed in — full wizard → Firestore create.
   const showCreateButton = !!user;
   const { sheets, loading, error } = useServiceSheets();
   const [search, setSearch] = useState('');
   const [siteFilter, setSiteFilter] = useState('');
+  const [logisticsFilter, setLogisticsFilter] = useState('');
   const [sites, setSites] = useState<CatalogSite[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
   const [historyFilter, setHistoryFilter] = useState<
@@ -71,12 +77,33 @@ export function DeparturesPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [showReject, setShowReject] = useState(false);
-  const [process2Open, setProcess2Open] = useState(false);
+  const [ticketsOpen, setTicketsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isCreating = createPhase != null;
 
   useEffect(() => subscribeToSites(setSites), []);
+
+  const operadorKpis = useMemo(() => {
+    if (role !== 'operador') return null;
+    let pending = 0;
+    let completed = 0;
+    for (const s of sheets) {
+      if (
+        !canAccessLogisticsAccount(
+          role,
+          s.logisticsAccountId,
+          assignedLogisticsIds
+        )
+      ) {
+        continue;
+      }
+      const status = getSheetStatus(s);
+      if (status === 'pending_logistics') pending += 1;
+      else if (status === 'completed') completed += 1;
+    }
+    return { pending, completed };
+  }, [sheets, role, assignedLogisticsIds]);
 
   const filtered = useMemo(() => {
     return sheets.filter((s) => {
@@ -104,6 +131,9 @@ export function DeparturesPage() {
               s.siteName === site.name)
         );
 
+      const matchesLogistics =
+        !logisticsFilter || s.logisticsAccountId === logisticsFilter;
+
       const status = getSheetStatus(s);
       const matchesStatus = !statusFilter || status === statusFilter;
 
@@ -116,8 +146,7 @@ export function DeparturesPage() {
         matchesHistory =
           status === 'pending_supervisor' || status === 'pending_meli';
       } else if (historyFilter === 'process2') {
-        matchesHistory =
-          status === 'pending_process2' || status === 'pending_cliente';
+        matchesHistory = status === 'pending_logistics';
       } else if (historyFilter === 'toApprove') {
         if (role === 'supervisor') {
           matchesHistory =
@@ -127,22 +156,37 @@ export function DeparturesPage() {
           matchesHistory =
             status === 'pending_meli' &&
             canAccessSheetSite(role, s, assignedSiteIds, sites);
-        } else if (role === 'operador' || role === 'admin')
-          matchesHistory = status === 'pending_process2';
-        else if (role === 'cliente') matchesHistory = status === 'pending_cliente';
-        else matchesHistory = false;
+        } else if (role === 'operador') {
+          matchesHistory =
+            status === 'pending_logistics' &&
+            canAccessLogisticsAccount(
+              role,
+              s.logisticsAccountId,
+              assignedLogisticsIds
+            );
+        } else if (role === 'admin') {
+          matchesHistory = status === 'pending_logistics';
+        } else matchesHistory = false;
       }
 
-      return matchesSearch && matchesSite && matchesStatus && matchesHistory;
+      return (
+        matchesSearch &&
+        matchesSite &&
+        matchesLogistics &&
+        matchesStatus &&
+        matchesHistory
+      );
     });
   }, [
     sheets,
     search,
     siteFilter,
+    logisticsFilter,
     statusFilter,
     historyFilter,
     role,
     assignedSiteIds,
+    assignedLogisticsIds,
     sites,
   ]);
 
@@ -158,18 +202,24 @@ export function DeparturesPage() {
       ? getNextSheetStatus(getSheetStatus(selected))
       : null;
 
-  const canAdvanceSelected =
+  const canManageTicketsSelected =
     !!selected &&
-    !!user &&
-    !!nextStatus &&
-    canAdvanceSheetStatus(
-      role,
-      selected,
-      user.uid,
-      nextStatus,
-      assignedSiteIds,
-      sites
-    );
+    canManageSheetTickets(role, selected, assignedLogisticsIds);
+
+  const canAdvanceSelected =
+    (!!selected &&
+      !!user &&
+      !!nextStatus &&
+      canAdvanceSheetStatus(
+        role,
+        selected,
+        user.uid,
+        nextStatus,
+        assignedSiteIds,
+        sites,
+        assignedLogisticsIds
+      )) ||
+    canManageTicketsSelected;
 
   const canRejectSelected =
     !!selected &&
@@ -190,7 +240,7 @@ export function DeparturesPage() {
     setShowReject(false);
     setRejectReason('');
     setOcrBusy(false);
-    setProcess2Open(false);
+    setTicketsOpen(false);
   };
 
   const openCreateModal = () => {
@@ -255,6 +305,11 @@ export function DeparturesPage() {
     setSaving(true);
     setSaveError(null);
     try {
+      if (!asDraft && !scanBlob && !sheet.photoUri) {
+        setSaveError(t.createSheet.photoRequired);
+        return;
+      }
+
       const sheetId =
         sheet.id?.startsWith('sheet-') ? sheet.id : `sheet-${Date.now()}`;
       const now = new Date().toISOString();
@@ -328,12 +383,13 @@ export function DeparturesPage() {
   const handleAdvance = async () => {
     if (!selected || !user || !nextStatus) return;
 
-    // Process 2 needs kg + warehouse times before advancing.
+    const currentStatus = getSheetStatus(selected);
+    // Logistics tickets are required before completing pending_logistics sheets.
     if (
-      getSheetStatus(selected) === 'pending_process2' &&
-      nextStatus === 'pending_cliente'
+      nextStatus === 'completed' ||
+      (currentStatus === 'pending_logistics' && role === 'operador')
     ) {
-      setProcess2Open(true);
+      setTicketsOpen(true);
       return;
     }
 
@@ -351,7 +407,8 @@ export function DeparturesPage() {
         user.uid,
         nextStatus,
         assignedSiteIds,
-        sites
+        sites,
+        assignedLogisticsIds
       )
     ) {
       setSaveError(t.serviceSheet.statusBlocked);
@@ -377,19 +434,19 @@ export function DeparturesPage() {
     }
   };
 
-  const handleProcess2Submit = async (sheet: ServiceSheet) => {
+  const handleTicketsComplete = async (sheet: ServiceSheet) => {
     if (!user || !selected) return;
     setSaving(true);
     setSaveError(null);
     try {
-      const updated = applyStatusTransition(sheet, 'pending_cliente', {
+      const updated = applyStatusTransition(sheet, 'completed', {
         uid: user.uid,
         name: profile?.name,
         role,
       });
       await updateServiceSheet(selected.id, updated);
       setSelected(updated);
-      setProcess2Open(false);
+      setTicketsOpen(false);
     } catch (err) {
       setSaveError(
         err instanceof Error ? err.message : t.serviceSheet.saveError
@@ -423,13 +480,12 @@ export function DeparturesPage() {
   };
 
   const advanceLabel =
-    nextStatus === 'completed'
-      ? t.serviceSheet.completeSheet
-      : getSheetStatus(selected ?? { status: 'draft' }) === 'pending_process2'
-        ? t.process2.open
-        : nextStatus
-          ? `${t.serviceSheet.approve}: ${getStatusLabel(nextStatus, language)}`
-          : '';
+    nextStatus === 'completed' ||
+    getSheetStatus(selected ?? { status: 'draft' }) === 'pending_logistics'
+      ? t.tickets.open
+      : nextStatus
+        ? `${t.serviceSheet.approve}: ${getStatusLabel(nextStatus, language)}`
+        : '';
 
   const modalTitle = (() => {
     if (createPhase === 'picker') return t.serviceSheet.addSheet;
@@ -456,6 +512,24 @@ export function DeparturesPage() {
               </Button>
             ) : null}
           </div>
+          {operadorKpis && (
+            <div className="mb-4 flex flex-wrap gap-3">
+              <div className="rounded-xl border border-surface-200 bg-surface-50 px-4 py-2 text-sm">
+                <span className="text-surface-500">{t.tickets.pending}: </span>
+                <span className="font-semibold text-surface-900">
+                  {operadorKpis.pending}
+                </span>
+              </div>
+              <div className="rounded-xl border border-surface-200 bg-surface-50 px-4 py-2 text-sm">
+                <span className="text-surface-500">
+                  {t.tickets.completedCount}:{' '}
+                </span>
+                <span className="font-semibold text-surface-900">
+                  {operadorKpis.completed}
+                </span>
+              </div>
+            </div>
+          )}
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
             <div className="min-w-0 flex-1">
               <div className="relative">
@@ -478,6 +552,18 @@ export function DeparturesPage() {
                 ...sites.map((site) => ({
                   value: site.id,
                   label: `${siteDisplayName(site, language)} (${site.code})`,
+                })),
+              ]}
+            />
+            <Select
+              label=""
+              value={logisticsFilter}
+              onChange={(e) => setLogisticsFilter(e.target.value)}
+              options={[
+                { value: '', label: t.common.allLogistics },
+                ...LOGISTICS_ACCOUNTS.map((account) => ({
+                  value: account.id,
+                  label: logisticsDisplayName(account.id, language),
                 })),
               ]}
             />
@@ -693,20 +779,24 @@ export function DeparturesPage() {
       </Modal>
 
       <Modal
-        open={process2Open && !!selected}
-        onClose={() => setProcess2Open(false)}
-        title={t.process2.title}
+        open={ticketsOpen && !!selected}
+        onClose={() => setTicketsOpen(false)}
+        title={t.tickets.title}
         size="lg"
         bare
       >
         {selected && (
-          <Process2Form
-            sheet={selected}
-            saving={saving}
-            error={saveError}
-            onCancel={() => setProcess2Open(false)}
-            onSubmit={(sheet) => void handleProcess2Submit(sheet)}
-          />
+          <div className="p-4 sm:p-6">
+            <LogisticsTicketsForm
+              sheet={selected}
+              busy={saving}
+              onChange={setSelected}
+              onComplete={(sheet) => void handleTicketsComplete(sheet)}
+            />
+            {saveError && (
+              <p className="mt-3 text-sm text-rose-600">{saveError}</p>
+            )}
+          </div>
         )}
       </Modal>
     </Layout>

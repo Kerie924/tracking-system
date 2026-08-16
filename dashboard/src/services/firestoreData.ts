@@ -32,6 +32,7 @@ import type {
   CatalogSite,
   SheetFirmas,
   FirmaEntry,
+  WeighbridgeTicket,
 } from '@/types';
 import {
   createEmptyMaterialMap,
@@ -70,9 +71,48 @@ function parseFirmas(raw: unknown): SheetFirmas | undefined {
   return result;
 }
 
-function parseAssignedSiteIds(raw: unknown): string[] {
+function parseAssignedIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((id): id is string => typeof id === 'string' && id.length > 0);
+}
+
+function parseTickets(raw: unknown): WeighbridgeTicket[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const tickets: WeighbridgeTicket[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const id =
+      typeof row.id === 'string' && row.id
+        ? row.id
+        : `ticket-${tickets.length + 1}`;
+    const ticket: WeighbridgeTicket = { id };
+    if (typeof row.photoUri === 'string') ticket.photoUri = row.photoUri;
+    if (typeof row.scaleFolio === 'string') ticket.scaleFolio = row.scaleFolio;
+    if (typeof row.scaleDateTime === 'string') {
+      ticket.scaleDateTime = row.scaleDateTime;
+    }
+    if (typeof row.tareWeight === 'number' && Number.isFinite(row.tareWeight)) {
+      ticket.tareWeight = row.tareWeight;
+    }
+    if (typeof row.grossWeight === 'number' && Number.isFinite(row.grossWeight)) {
+      ticket.grossWeight = row.grossWeight;
+    }
+    if (typeof row.netWeight === 'number' && Number.isFinite(row.netWeight)) {
+      ticket.netWeight = row.netWeight;
+    }
+    if (
+      typeof row.discountPercent === 'number' &&
+      Number.isFinite(row.discountPercent)
+    ) {
+      ticket.discountPercent = row.discountPercent;
+    }
+    if (row.ticketJson && typeof row.ticketJson === 'object') {
+      ticket.ticketJson = row.ticketJson as Record<string, unknown>;
+    }
+    tickets.push(ticket);
+  }
+  return tickets;
 }
 
 function parseUserProfile(docId: string, data: DocumentData): UserProfile {
@@ -83,7 +123,8 @@ function parseUserProfile(docId: string, data: DocumentData): UserProfile {
     role: normalizeUserRole(data.role),
     language: (data.language ?? 'es') as Language,
     createdAt: data.createdAt ?? '',
-    assignedSiteIds: parseAssignedSiteIds(data.assignedSiteIds),
+    assignedSiteIds: parseAssignedIds(data.assignedSiteIds),
+    assignedLogisticsIds: parseAssignedIds(data.assignedLogisticsIds),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
   };
 }
@@ -120,6 +161,10 @@ function parseServiceSheet(
     createdBy,
     createdByName,
     packagingType: data.packagingType,
+    logisticsAccountId:
+      typeof data.logisticsAccountId === 'string'
+        ? data.logisticsAccountId
+        : undefined,
     operatorId: data.operatorId,
     autoriza: data.autoriza,
     elaboro: data.elaboro,
@@ -158,6 +203,7 @@ function parseServiceSheet(
     process2CompletedBy: data.process2CompletedBy,
     process2CompletedByName: data.process2CompletedByName,
     materials: parseServiceSheetMaterials(data.materials),
+    tickets: parseTickets(data.tickets),
   };
 }
 
@@ -276,6 +322,7 @@ export async function ensureUserProfile(
       language: 'es',
       createdAt: now,
       assignedSiteIds: [],
+      assignedLogisticsIds: [],
       updatedAt: now,
     };
     await setDoc(ref, profile);
@@ -303,7 +350,9 @@ export async function ensureUserProfile(
 
 export async function updateUserProfile(
   uid: string,
-  data: Partial<Pick<UserProfile, 'name' | 'language' | 'assignedSiteIds'>>
+  data: Partial<
+    Pick<UserProfile, 'name' | 'language' | 'assignedSiteIds' | 'assignedLogisticsIds'>
+  >
 ): Promise<void> {
   await updateDoc(userDocRef(uid), {
     ...data,
@@ -446,10 +495,25 @@ export function serviceSheetToFirestorePayload(
   if (sheet.id) payload.id = sheet.id;
   if (sheet.createdByName) payload.createdByName = sheet.createdByName;
   if (sheet.packagingType) payload.packagingType = sheet.packagingType;
+  if (sheet.logisticsAccountId) payload.logisticsAccountId = sheet.logisticsAccountId;
   if (sheet.photoUri) payload.photoUri = sheet.photoUri;
   if (sheet.sheetJson) payload.sheetJson = sheet.sheetJson;
   if (sheet.firmas) payload.firmas = sheet.firmas;
   if (sheet.rejectionReason) payload.rejectionReason = sheet.rejectionReason;
+  if (sheet.tickets?.length) {
+    payload.tickets = sheet.tickets.map((t) => {
+      const entry: DocumentData = { id: t.id };
+      if (t.photoUri) entry.photoUri = t.photoUri;
+      if (t.scaleFolio) entry.scaleFolio = t.scaleFolio;
+      if (t.scaleDateTime) entry.scaleDateTime = t.scaleDateTime;
+      if (t.tareWeight != null) entry.tareWeight = t.tareWeight;
+      if (t.grossWeight != null) entry.grossWeight = t.grossWeight;
+      if (t.netWeight != null) entry.netWeight = t.netWeight;
+      if (t.discountPercent != null) entry.discountPercent = t.discountPercent;
+      if (t.ticketJson) entry.ticketJson = t.ticketJson;
+      return entry;
+    });
+  }
 
   const optionalFields = [
     'autoriza',
@@ -851,6 +915,17 @@ export async function updateUserAssignedSites(
 ): Promise<void> {
   await updateDoc(userDocRef(userId), {
     assignedSiteIds,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/** Admin direct override of a logistics operador's accounts. */
+export async function updateUserAssignedLogistics(
+  userId: string,
+  assignedLogisticsIds: string[]
+): Promise<void> {
+  await updateDoc(userDocRef(userId), {
+    assignedLogisticsIds,
     updatedAt: new Date().toISOString(),
   });
 }

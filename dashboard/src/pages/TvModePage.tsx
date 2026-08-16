@@ -9,7 +9,16 @@ import {
 } from '@/components/charts/Charts';
 import { formatNumber } from '@/types';
 import { useTranslation } from '@/contexts/LanguageContext';
-import { Recycle, FileText, Package, Users, ArrowLeft } from 'lucide-react';
+import {
+  Recycle,
+  FileText,
+  Package,
+  Users,
+  ArrowLeft,
+  Calendar,
+  Scale,
+  MapPin,
+} from 'lucide-react';
 
 export function TvModePage() {
   const { stats } = useServiceSheetStats();
@@ -63,30 +72,42 @@ export function TvModePage() {
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-4 p-6 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 p-6 lg:grid-cols-3 xl:grid-cols-6">
         <TvKpi
-          icon={FileText}
+          icon={Calendar}
           label={t.dashboard.sheetsToday}
           value={formatNumber(stats.todaySheets, locale)}
           color="text-brand-400"
         />
         <TvKpi
-          icon={Package}
-          label={t.dashboard.totalQuantity}
-          value={formatNumber(stats.totalQuantity, locale)}
+          icon={FileText}
+          label={t.dashboard.totalSheets}
+          value={formatNumber(stats.totalSheets, locale)}
           color="text-blue-400"
         />
         <TvKpi
-          icon={Recycle}
-          label={t.dashboard.totalSheets}
-          value={formatNumber(stats.totalSheets, locale)}
+          icon={Scale}
+          label={t.dashboard.totalKilograms}
+          value={`${formatNumber(stats.totalKilograms, locale)} kg`}
           color="text-purple-400"
+        />
+        <TvKpi
+          icon={Package}
+          label={t.dashboard.totalQuantity}
+          value={formatNumber(stats.totalQuantity, locale)}
+          color="text-amber-400"
+        />
+        <TvKpi
+          icon={MapPin}
+          label={t.dashboard.activeSites}
+          value={formatNumber(stats.activeSites, locale)}
+          color="text-sky-400"
         />
         <TvKpi
           icon={Users}
           label={t.dashboard.activeUsers}
           value={formatNumber(stats.activeUsers, locale)}
-          color="text-amber-400"
+          color="text-emerald-400"
         />
       </div>
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { KpiCard } from '@/components/ui/KpiCard';
@@ -15,17 +15,43 @@ import { useServiceSheetStats, useTrends } from '@/hooks/useFirestoreData';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTranslation } from '@/contexts/LanguageContext';
 import { getMaterialLabel } from '@/i18n/translations';
-import { formatNumber, MATERIAL_TYPES } from '@/types';
+import {
+  canAccessLogisticsAccount,
+  formatNumber,
+  getSheetStatus,
+  MATERIAL_TYPES,
+} from '@/types';
 import type { ServiceSheet } from '@/types';
-import { FileText, Package, MapPin, Users, Calendar, Plus, Scale } from 'lucide-react';
+import { FileText, Package, MapPin, Users, Calendar, Plus, Scale, Truck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function DashboardPage() {
   const { t, language, locale } = useTranslation();
-  const { canCreateSheets, isAdmin } = useAuth();
+  const { canCreateSheets, isAdmin, role, assignedLogisticsIds } = useAuth();
   const { stats, sheets, loading, error, canViewAllSheets } = useServiceSheetStats();
   const { data: trends } = useTrends(7);
   const [selected, setSelected] = useState<ServiceSheet | null>(null);
+
+  const logisticsKpis = useMemo(() => {
+    if (role !== 'operador') return null;
+    let pending = 0;
+    let completed = 0;
+    for (const s of sheets) {
+      if (
+        !canAccessLogisticsAccount(
+          role,
+          s.logisticsAccountId,
+          assignedLogisticsIds
+        )
+      ) {
+        continue;
+      }
+      const status = getSheetStatus(s);
+      if (status === 'pending_logistics') pending += 1;
+      else if (status === 'completed') completed += 1;
+    }
+    return { pending, completed };
+  }, [sheets, role, assignedLogisticsIds]);
 
   if (loading) {
     return (
@@ -69,6 +95,23 @@ export function DashboardPage() {
       </div>
 
       {isAdmin && <AdminRequestQueues />}
+
+      {logisticsKpis && (
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:mb-8 sm:grid-cols-2 sm:gap-5">
+          <KpiCard
+            title={t.dashboard.logisticsPending}
+            value={formatNumber(logisticsKpis.pending, locale)}
+            icon={Truck}
+            color="amber"
+          />
+          <KpiCard
+            title={t.dashboard.logisticsCompleted}
+            value={formatNumber(logisticsKpis.completed, locale)}
+            icon={Scale}
+            color="green"
+          />
+        </div>
+      )}
 
       <div
         className={`mb-6 grid grid-cols-1 gap-4 sm:mb-8 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 ${canViewAllSheets ? 'xl:grid-cols-6' : 'xl:grid-cols-5'}`}

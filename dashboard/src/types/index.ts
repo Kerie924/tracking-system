@@ -20,11 +20,13 @@ export type ServiceSheetStatus =
   | 'draft'
   | 'pending_supervisor'
   | 'pending_meli'
+  | 'pending_logistics'
   | 'pending_process2'
   | 'pending_cliente'
   | 'completed'
   | 'approved'
   | 'rejected'
+  | 'canceled'
   /** @deprecated legacy dashboard statuses */
   | 'validated'
   | 'authorized';
@@ -35,6 +37,15 @@ export type Language = 'en' | 'es';
 
 export type SheetSource = 'manual' | 'ocr';
 
+export type LogisticsAccountId =
+  | 'taga'
+  | 'serrano'
+  | 'juanCarlos'
+  | 'treesever'
+  | 'rosset'
+  | 'plastic'
+  | 'bioambientalistik';
+
 export interface FirmaEntry {
   filled?: boolean;
   value?: string | null;
@@ -43,6 +54,19 @@ export interface FirmaEntry {
 }
 
 export type SheetFirmas = Record<string, FirmaEntry | undefined>;
+
+export interface WeighbridgeTicket {
+  id: string;
+  photoUri?: string;
+  scaleFolio?: string;
+  /** ISO or local datetime from the scale ticket */
+  scaleDateTime?: string;
+  tareWeight?: number;
+  grossWeight?: number;
+  netWeight?: number;
+  discountPercent?: number;
+  ticketJson?: Record<string, unknown>;
+}
 
 export interface ServiceSheetMaterial {
   materialType: MaterialType | string;
@@ -70,6 +94,8 @@ export interface ServiceSheet {
   createdByName?: string;
   /** Container / vehicle packaging — Firestore `packagingType` (e.g. dryBox) */
   packagingType?: string;
+  /** Logistics provider from Orden de Salida (e.g. taga) */
+  logisticsAccountId?: string;
   operatorId?: string;
   autoriza?: string;
   elaboro?: string;
@@ -107,6 +133,8 @@ export interface ServiceSheet {
   process2CompletedBy?: string;
   process2CompletedByName?: string;
   materials: ServiceSheetMaterial[];
+  /** Weighbridge tickets attached by logistics (1–4) */
+  tickets?: WeighbridgeTicket[];
 }
 
 export interface UserProfile {
@@ -117,6 +145,8 @@ export interface UserProfile {
   language: Language;
   createdAt: string;
   assignedSiteIds?: string[];
+  /** Logistics accounts this operador may handle */
+  assignedLogisticsIds?: string[];
   updatedAt?: string;
 }
 
@@ -159,6 +189,54 @@ export interface CatalogSite {
   labelEs?: string;
   sortOrder?: number;
   active?: boolean;
+}
+
+export interface LogisticsAccount {
+  id: LogisticsAccountId;
+  labelEn: string;
+  labelEs: string;
+  sortOrder: number;
+}
+
+/** Logistics providers on the new Orden de Salida form. */
+export const LOGISTICS_ACCOUNTS: LogisticsAccount[] = [
+  { id: 'taga', labelEn: 'TAGA', labelEs: 'TAGA', sortOrder: 1 },
+  { id: 'serrano', labelEn: 'SERRANO', labelEs: 'SERRANO', sortOrder: 2 },
+  { id: 'juanCarlos', labelEn: 'JUAN CARLOS', labelEs: 'JUAN CARLOS', sortOrder: 3 },
+  { id: 'treesever', labelEn: 'TREESEVER', labelEs: 'TREESEVER', sortOrder: 4 },
+  { id: 'rosset', labelEn: 'ROSSET', labelEs: 'ROSSET', sortOrder: 5 },
+  { id: 'plastic', labelEn: 'PLASTIC', labelEs: 'PLASTIC', sortOrder: 6 },
+  {
+    id: 'bioambientalistik',
+    labelEn: 'BIOAMBIENTALISTIK',
+    labelEs: 'BIOAMBIENTALISTIK',
+    sortOrder: 7,
+  },
+];
+
+export function logisticsDisplayName(
+  id: string | undefined,
+  lang: Language = 'es'
+): string {
+  if (!id) return '—';
+  const account = LOGISTICS_ACCOUNTS.find((a) => a.id === id);
+  if (!account) return id;
+  return lang === 'en' ? account.labelEn : account.labelEs;
+}
+
+export function matchLogisticsAccount(
+  raw?: string | null
+): LogisticsAccount | undefined {
+  if (!raw?.trim()) return undefined;
+  const compact = raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  return LOGISTICS_ACCOUNTS.find((a) => {
+    const label = a.labelEn.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return a.id.toLowerCase() === raw.trim().toLowerCase() || label === compact;
+  });
 }
 
 /** Fallback sites when Firestore catalog is empty. */
@@ -237,7 +315,7 @@ export function matchCatalogSite(
 }
 
 /**
- * Stamp signature / Process-2 metadata when advancing status.
+ * Stamp signature / logistics metadata when advancing status.
  */
 export function applyStatusTransition(
   sheet: ServiceSheet,
@@ -255,24 +333,20 @@ export function applyStatusTransition(
     updated.supervisorSignedAt = now;
     updated.supervisorUserId = actor.uid;
     if (name) updated.responsableSup = name;
-  } else if (nextStatus === 'pending_process2') {
+  } else if (nextStatus === 'pending_logistics' || nextStatus === 'pending_process2') {
     updated.meliSignedAt = now;
     updated.meliUserId = actor.uid;
     if (name) updated.autoriza = name;
-  } else if (nextStatus === 'pending_cliente') {
+    // Normalize legacy next status to pending_logistics when writing
+    updated.status = 'pending_logistics';
+  } else if (nextStatus === 'completed') {
     updated.operadorSignedAt = now;
     updated.operadorUserId = actor.uid;
-    if (name) {
-      updated.recibio = name;
-      updated.entrega = name;
-    }
-  } else if (nextStatus === 'completed') {
-    updated.clienteSignedAt = now;
-    updated.clienteUserId = actor.uid;
     updated.process2CompletedAt = now;
     updated.process2CompletedBy = actor.uid;
     if (name) {
-      updated.recibe = name;
+      updated.recibio = name;
+      updated.entrega = name;
       updated.process2CompletedByName = name;
     }
   }
@@ -348,10 +422,10 @@ export const SERVICE_SHEET_STATUSES: ServiceSheetStatus[] = [
   'draft',
   'pending_supervisor',
   'pending_meli',
-  'pending_process2',
-  'pending_cliente',
+  'pending_logistics',
   'completed',
   'rejected',
+  'canceled',
 ];
 
 const LEGACY_ROLES = new Set(['owner', 'user', 'customer', 'advisor']);
@@ -383,14 +457,18 @@ export function normalizeSheetStatus(status: unknown): ServiceSheetStatus {
   if (status === 'approved') return 'completed';
   if (status === 'validated') return 'pending_supervisor';
   if (status === 'authorized') return 'pending_meli';
+  // Legacy Process 2 / cliente steps → logistics queue
+  if (status === 'pending_process2' || status === 'pending_cliente') {
+    return 'pending_logistics';
+  }
   if (
     status === 'draft' ||
     status === 'pending_supervisor' ||
     status === 'pending_meli' ||
-    status === 'pending_process2' ||
-    status === 'pending_cliente' ||
+    status === 'pending_logistics' ||
     status === 'completed' ||
-    status === 'rejected'
+    status === 'rejected' ||
+    status === 'canceled'
   ) {
     return status;
   }
@@ -420,8 +498,41 @@ export function canReviewRoleRequests(role: UserRole): boolean {
 
 export function canCreateServiceSheet(_role: UserRole): boolean {
   // MD §13: any signed-in user may create when createdBy == auth.uid.
-  // Role still gates approval / Process 2 / admin queues.
   return true;
+}
+
+export function canRequestLogisticsAssignment(role: UserRole): boolean {
+  return role === 'operador';
+}
+
+export function ticketHasWeights(ticket: WeighbridgeTicket): boolean {
+  return (
+    typeof ticket.tareWeight === 'number' &&
+    Number.isFinite(ticket.tareWeight) &&
+    typeof ticket.grossWeight === 'number' &&
+    Number.isFinite(ticket.grossWeight) &&
+    typeof ticket.netWeight === 'number' &&
+    Number.isFinite(ticket.netWeight)
+  );
+}
+
+export function sheetHasValidTickets(
+  sheet: Pick<ServiceSheet, 'tickets'>
+): boolean {
+  const tickets = sheet.tickets ?? [];
+  return tickets.length >= 1 && tickets.some(ticketHasWeights);
+}
+
+export function canAccessLogisticsAccount(
+  role: UserRole,
+  logisticsAccountId: string | undefined,
+  assignedLogisticsIds: string[] = []
+): boolean {
+  if (role === 'admin') return true;
+  if (role !== 'operador') return false;
+  if (!logisticsAccountId) return false;
+  if (!assignedLogisticsIds.length) return false;
+  return assignedLogisticsIds.includes(logisticsAccountId);
 }
 
 export function canEditSheet(
@@ -431,7 +542,7 @@ export function canEditSheet(
 ): boolean {
   const status = getSheetStatus(sheet);
   const ownerId = getSheetOwnerId(sheet);
-  if (role === 'admin') return status !== 'completed';
+  if (role === 'admin') return status !== 'completed' && status !== 'canceled';
   if (role === 'elaboro') {
     return ownerId === userId && (status === 'draft' || status === 'rejected');
   }
@@ -444,9 +555,8 @@ export function getNextSheetStatus(
   const current = normalizeSheetStatus(status);
   if (current === 'draft' || current === 'rejected') return 'pending_supervisor';
   if (current === 'pending_supervisor') return 'pending_meli';
-  if (current === 'pending_meli') return 'pending_process2';
-  if (current === 'pending_process2') return 'pending_cliente';
-  if (current === 'pending_cliente') return 'completed';
+  if (current === 'pending_meli') return 'pending_logistics';
+  if (current === 'pending_logistics') return 'completed';
   return null;
 }
 
@@ -501,16 +611,28 @@ export function canAdvanceSheetStatus(
   role: UserRole,
   sheet: Pick<
     ServiceSheet,
-    'userId' | 'createdBy' | 'status' | 'siteId' | 'codigo' | 'siteName'
+    | 'userId'
+    | 'createdBy'
+    | 'status'
+    | 'siteId'
+    | 'codigo'
+    | 'siteName'
+    | 'logisticsAccountId'
+    | 'tickets'
   >,
   userId: string,
   nextStatus: ServiceSheetStatus,
   assignedSiteIds: string[] = [],
-  sites: CatalogSite[] = FALLBACK_SITES
+  sites: CatalogSite[] = FALLBACK_SITES,
+  assignedLogisticsIds: string[] = []
 ): boolean {
   const current = getSheetStatus(sheet);
   if (getNextSheetStatus(current) !== nextStatus) return false;
-  if (role === 'admin') return true;
+  if (role === 'admin') {
+    if (nextStatus === 'pending_logistics' && !sheet.logisticsAccountId) return false;
+    if (nextStatus === 'completed' && !sheetHasValidTickets(sheet)) return false;
+    return true;
+  }
 
   if (nextStatus === 'pending_supervisor') {
     return (
@@ -526,18 +648,25 @@ export function canAdvanceSheetStatus(
       canAccessSheetSite(role, sheet, assignedSiteIds, sites)
     );
   }
-  if (nextStatus === 'pending_process2') {
+  if (nextStatus === 'pending_logistics') {
     return (
       role === 'meli' &&
       current === 'pending_meli' &&
+      !!sheet.logisticsAccountId &&
       canAccessSheetSite(role, sheet, assignedSiteIds, sites)
     );
   }
-  if (nextStatus === 'pending_cliente') {
-    return role === 'operador' && current === 'pending_process2';
-  }
   if (nextStatus === 'completed') {
-    return role === 'cliente' && current === 'pending_cliente';
+    return (
+      role === 'operador' &&
+      current === 'pending_logistics' &&
+      sheetHasValidTickets(sheet) &&
+      canAccessLogisticsAccount(
+        role,
+        sheet.logisticsAccountId,
+        assignedLogisticsIds
+      )
+    );
   }
   return false;
 }
@@ -550,11 +679,7 @@ export function canRejectSheet(
 ): boolean {
   const status = getSheetStatus(sheet);
   if (role === 'admin') {
-    return (
-      status === 'pending_supervisor' ||
-      status === 'pending_meli' ||
-      status === 'pending_cliente'
-    );
+    return status === 'pending_supervisor' || status === 'pending_meli';
   }
   if (role === 'supervisor' && status === 'pending_supervisor') {
     return canAccessSheetSite(role, sheet, assignedSiteIds, sites);
@@ -562,8 +687,22 @@ export function canRejectSheet(
   if (role === 'meli' && status === 'pending_meli') {
     return canAccessSheetSite(role, sheet, assignedSiteIds, sites);
   }
-  if (role === 'cliente' && status === 'pending_cliente') return true;
   return false;
+}
+
+export function canManageSheetTickets(
+  role: UserRole,
+  sheet: Pick<ServiceSheet, 'status' | 'logisticsAccountId'>,
+  assignedLogisticsIds: string[] = []
+): boolean {
+  const status = getSheetStatus(sheet);
+  if (status !== 'pending_logistics') return false;
+  if (role === 'admin') return true;
+  return canAccessLogisticsAccount(
+    role,
+    sheet.logisticsAccountId,
+    assignedLogisticsIds
+  );
 }
 
 export function firmaDisplayName(entry?: FirmaEntry | null): string | undefined {
@@ -575,7 +714,7 @@ export function firmaDisplayName(entry?: FirmaEntry | null): string | undefined 
 
 /**
  * First approval firma with filled !== true decides pending status.
- * Per WEB_DEVELOPER_WORKFLOW.md §8.
+ * New form: elaboró → supervisor → meli → operador (then logistics completes via tickets).
  */
 export function resolveStatusFromFirmas(
   firmas?: SheetFirmas | null
@@ -585,8 +724,9 @@ export function resolveStatusFromFirmas(
   const gates: { key: string; status: ServiceSheetStatus }[] = [
     { key: 'responsable_supervisor', status: 'pending_supervisor' },
     { key: 'autoriza_melii', status: 'pending_meli' },
-    { key: 'recibio_y_entrego_operador', status: 'pending_process2' },
-    { key: 'recibio_cliente', status: 'pending_cliente' },
+    // Operador firma filled → ready for logistics tickets (or legacy keys)
+    { key: 'recibio_y_entrego_operador', status: 'pending_logistics' },
+    { key: 'operador', status: 'pending_logistics' },
   ];
 
   let sawBooleanFilled = false;
@@ -596,7 +736,8 @@ export function resolveStatusFromFirmas(
     if (!entry || entry.filled !== true) return status;
   }
 
-  return sawBooleanFilled ? 'completed' : 'pending_supervisor';
+  // All firmas filled — still need weighbridge tickets before completed
+  return sawBooleanFilled ? 'pending_logistics' : 'pending_supervisor';
 }
 
 export function applyFirmasToSheet(
@@ -648,11 +789,11 @@ export function validateSheetForStatus(
   ) {
     if (!sheet.folio?.trim() && !sheet.codigo?.trim()) return 'folio';
   }
-  if (target === 'pending_cliente') {
-    if (!(sheet.recibio?.trim() || sheet.entrega?.trim())) return 'recibio';
+  if (target === 'pending_logistics') {
+    if (!sheet.logisticsAccountId?.trim()) return 'logistics';
   }
   if (target === 'completed') {
-    if (!sheet.recibe?.trim() && !sheet.clienteSignedAt) return 'recibe';
+    if (!sheetHasValidTickets(sheet)) return 'tickets';
   }
   return null;
 }

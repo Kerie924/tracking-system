@@ -5,6 +5,7 @@ import {
   applyFirmasToSheet,
   createEmptyServiceSheet,
   matchCatalogSite,
+  matchLogisticsAccount,
   normalizeMaterialType,
   packagingOptionToFirestoreCode,
   resolveStatusFromFirmas,
@@ -13,6 +14,7 @@ import {
   type ServiceSheet,
   type ServiceSheetMaterial,
   type SheetFirmas,
+  type WeighbridgeTicket,
 } from '@/types';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
@@ -42,6 +44,10 @@ const OCR_SIBLING_KEYS = [
   'pesos',
   'peso',
   'kilos',
+  'logistica',
+  'logistics',
+  'logisticsAccount',
+  'selected_logistica',
 ] as const;
 
 /** Prefer nested sheet payload when present (`data` / `sheet` / `result`). */
@@ -618,16 +624,46 @@ export function ocrResponseToServiceSheet(
     asText(
       data.selected_unidad ??
         data.selectedUnidad ??
+        data.unidad_transporte ??
+        data.unidadTransporte ??
         data.unidad ??
         data.packagingType ??
         documento.unidad
     ) ?? undefined;
+
+  const logisticsRaw =
+    asText(
+      data.logistica ??
+        data.logistics ??
+        data.selected_logistica ??
+        data.selectedLogistica ??
+        data.logisticsAccount ??
+        data.cliente_logistica ??
+        documento.logistica
+    ) ?? undefined;
+  const logisticsMatch = matchLogisticsAccount(logisticsRaw);
 
   const root = asRecord(raw);
   const materials = mapOcrMaterials(
     materialsFromPayload(data),
     extractKilogramosPayload(data) ?? extractKilogramosPayload(root)
   );
+
+  // New form may put times at root / operador rather than cliente_de_servicio
+  const entryTime =
+    cliente.fecha_hora_entrada_sitio ??
+    cliente.entrada ??
+    cliente.siteEntryTime ??
+    data.hora_entrada ??
+    data.horaEntrada ??
+    operador.hora_entrada;
+  const exitTime =
+    cliente.fecha_hora_salida_sitio ??
+    cliente.salida ??
+    cliente.siteExitTime ??
+    data.hora_salida ??
+    data.horaSalida ??
+    operador.hora_salida;
 
   let sheet = createEmptyServiceSheet(userId, userName, userEmail);
   sheet = {
@@ -639,6 +675,7 @@ export function ocrResponseToServiceSheet(
     packagingType: packagingRaw
       ? packagingOptionToFirestoreCode(packagingRaw)
       : undefined,
+    logisticsAccountId: logisticsMatch?.id,
     operatorName: asText(operador.nombre ?? operador.name ?? operador.operatorName),
     operatorId: asText(
       operador.id_operador ?? operador.idOperador ?? operador.operatorId ?? operador.id
@@ -647,28 +684,25 @@ export function ocrResponseToServiceSheet(
       operador.placas_vehiculo ??
         operador.placasVehiculo ??
         operador.vehiclePlates ??
-        operador.placas
+        operador.placas ??
+        data.placas_vehiculo
     ),
     trailerPlates: asText(
       operador.placas_caja_remolque ??
         operador.placasCajaRemolque ??
         operador.trailerPlates ??
-        operador.placas_remolque
+        operador.placas_remolque ??
+        data.placas_caja_remolque
     ),
     sealNumber: asText(
       operador.numero_marchamo ??
         operador.numeroMarchamo ??
         operador.sealNumber ??
-        operador.marchamo
+        operador.marchamo ??
+        data.numero_marchamo
     ),
-    siteEntryTime: parseFlexibleDateTime(
-      cliente.fecha_hora_entrada_sitio ??
-        cliente.entrada ??
-        cliente.siteEntryTime
-    ),
-    siteExitTime: parseFlexibleDateTime(
-      cliente.fecha_hora_salida_sitio ?? cliente.salida ?? cliente.siteExitTime
-    ),
+    siteEntryTime: parseFlexibleDateTime(entryTime),
+    siteExitTime: parseFlexibleDateTime(exitTime),
     warehouseEntryTime: parseFlexibleDateTime(
       almacen.fecha_hora_entrada_almacen ??
         almacen.entrada ??
@@ -790,6 +824,128 @@ export async function uploadSheetScan(
   blob: Blob
 ): Promise<string> {
   const path = `serviceSheets/${sheetId}/scan.jpg`;
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' });
+  return getDownloadURL(storageRef);
+}
+
+/** Map weighbridge ticket OCR JSON → WeighbridgeTicket fields. */
+export function ocrResponseToWeighbridgeTicket(
+  raw: unknown,
+  ticketId: string
+): WeighbridgeTicket {
+  const data = unwrapOcrPayload(raw);
+  const ticketJson = data;
+
+  const scaleFolio = asText(
+    data.folio_bascula ??
+      data.folioBascula ??
+      data.scaleFolio ??
+      data.folio ??
+      data.scale_number ??
+      data.numero_bascula ??
+      data.ticketNumber
+  );
+
+  const datePart =
+    parseFlexibleDate(
+      data.fecha ?? data.date ?? data.fecha_bascula ?? data.scaleDate
+    ) ?? undefined;
+  const timeRaw = asText(
+    data.hora ?? data.time ?? data.hora_bascula ?? data.scaleTime
+  );
+  let scaleDateTime = parseFlexibleDateTime(
+    data.fecha_hora ??
+      data.fechaHora ??
+      data.scaleDateTime ??
+      data.datetime ??
+      (datePart && timeRaw ? `${datePart} ${timeRaw}` : datePart)
+  );
+
+  const tareWeight = parseLooseNumber(
+    data.tara ??
+      data.tare ??
+      data.tareWeight ??
+      data.peso_tara ??
+      data.pesoTara
+  );
+  const grossWeight = parseLooseNumber(
+    data.bruto ??
+      data.gross ??
+      data.grossWeight ??
+      data.peso_bruto ??
+      data.pesoBruto
+  );
+  const netWeight = parseLooseNumber(
+    data.neto ??
+      data.net ??
+      data.netWeight ??
+      data.peso_neto ??
+      data.pesoNeto
+  );
+
+  return {
+    id: ticketId,
+    scaleFolio,
+    scaleDateTime,
+    ...(tareWeight != null ? { tareWeight } : {}),
+    ...(grossWeight != null ? { grossWeight } : {}),
+    ...(netWeight != null ? { netWeight } : {}),
+    ticketJson,
+  };
+}
+
+export async function processWeighbridgeTicketOcr(
+  file: File,
+  ticketId?: string
+): Promise<{ ticket: WeighbridgeTicket; imageBlob: Blob; previewUrl: string }> {
+  const id = ticketId || `ticket-${Date.now()}`;
+  const { imageBase64, mimeType, blob, previewUrl } = await fileToOcrPayload(file);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OCR_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(OCR_PROCESS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageBase64,
+        mimeType,
+        image: imageBase64,
+        documentType: 'weighbridge_ticket',
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('Ticket OCR timed out. Try a clearer photo.');
+    }
+    const message = err instanceof Error ? err.message : 'Network error';
+    throw new Error(`Ticket OCR request failed (${message}).`);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(
+      `Ticket OCR failed (${response.status}): ${text || response.statusText}`
+    );
+  }
+
+  const json = await response.json();
+  const ticket = ocrResponseToWeighbridgeTicket(json, id);
+  return { ticket, imageBlob: blob, previewUrl };
+}
+
+export async function uploadSheetTicket(
+  sheetId: string,
+  ticketId: string,
+  blob: Blob
+): Promise<string> {
+  const path = `serviceSheets/${sheetId}/tickets/${ticketId}.jpg`;
   const storageRef = ref(storage, path);
   await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' });
   return getDownloadURL(storageRef);

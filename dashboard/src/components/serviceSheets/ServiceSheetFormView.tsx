@@ -7,12 +7,13 @@ import { MercadoLibreLogo } from '@/components/serviceSheets/MercadoLibreLogo';
 import {
   formatNumber,
   getMaterialDetailsMap,
+  LOGISTICS_ACCOUNTS,
+  logisticsDisplayName,
   matchesUnitOption,
   OTHER_ROW_UNIT_OF_MEASURE,
   SERVICE_SHEET_MATERIAL_ROWS,
   SERVICE_SHEET_UNIT_OPTIONS,
   toggleSheetMaterial,
-  updateSheetMaterialKilograms,
   updateSheetMaterialQuantity,
   updateSheetMaterialUnitOfMeasure,
   updateSheetPackagingType,
@@ -223,42 +224,25 @@ function formatSheetDateTime(iso?: string) {
   }
 }
 
-function TimeBlock({
-  title,
-  rows,
+function DateTimeFormField({
+  value,
   editable,
-  onTimeChange,
+  onChange,
 }: {
-  title: string;
-  rows: { label: string; field: keyof ServiceSheet; value?: string }[];
+  value?: string;
   editable?: boolean;
-  onTimeChange?: (field: keyof ServiceSheet, value: string) => void;
+  onChange?: (iso: string) => void;
 }) {
+  if (!editable) {
+    return <FieldValue value={formatSheetDateTime(value) || '—'} />;
+  }
   return (
-    <div className="border-b border-surface-200 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
-      <SectionCell header className="border-x-0 border-t-0 text-center">
-        {title}
-      </SectionCell>
-      <div className="divide-y divide-surface-100">
-        {rows.map(({ label, field, value }) => (
-          <div key={label} className="px-2 py-2">
-            <p className="text-[10px] leading-snug text-surface-600 sm:text-[11px]">{label}</p>
-            <div className="mt-1">
-              {editable ? (
-                <input
-                  type="datetime-local"
-                  value={isoToDatetimeLocal(value)}
-                  onChange={(e) => onTimeChange?.(field, datetimeLocalToIso(e.target.value))}
-                  className={cn(fieldInputClass, 'max-w-full')}
-                />
-              ) : (
-                <FieldValue value={formatSheetDateTime(value) || undefined} />
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+    <input
+      type="datetime-local"
+      value={isoToDatetimeLocal(value)}
+      onChange={(e) => onChange?.(datetimeLocalToIso(e.target.value) || '')}
+      className={cn(fieldInputClass, 'text-center')}
+    />
   );
 }
 
@@ -306,18 +290,6 @@ export function ServiceSheetFormView({
   const handleUnitSelect = (unitOption: string) => {
     if (!editable || !onChange) return;
     onChange(updateSheetPackagingType(sheet, unitOption));
-  };
-
-  const handleKilogramsChange = (materialType: MaterialType, raw: string) => {
-    if (!editable || !onChange) return;
-    const kilograms = Number(raw);
-    onChange(
-      updateSheetMaterialKilograms(
-        sheet,
-        materialType,
-        Number.isFinite(kilograms) ? kilograms : 0
-      )
-    );
   };
 
   const selectedPackaging = resolveSelectedUnitOption(sheet.packagingType);
@@ -386,6 +358,31 @@ export function ServiceSheetFormView({
                 onChange={(v) => updateField('fecha', v)}
               />
             </MetaBox>
+            <MetaBox
+              label={`${t.createSheet.logistics}:`}
+              className="col-span-2 lg:col-span-1"
+            >
+              {editable ? (
+                <select
+                  className="w-full rounded border border-surface-200 bg-white px-2 py-1 text-xs font-semibold"
+                  value={sheet.logisticsAccountId ?? ''}
+                  onChange={(e) =>
+                    updateField('logisticsAccountId', e.target.value)
+                  }
+                >
+                  <option value="">{t.createSheet.selectLogistics}</option>
+                  {LOGISTICS_ACCOUNTS.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {logisticsDisplayName(a.id, language)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <FieldValue
+                  value={logisticsDisplayName(sheet.logisticsAccountId, language)}
+                />
+              )}
+            </MetaBox>
           </div>
         </div>
       </FormSection>
@@ -407,11 +404,8 @@ export function ServiceSheetFormView({
                 <th className="min-w-[8rem] border-r border-surface-200 px-2 py-2.5 font-semibold">
                   {t.serviceSheetForm.unitOfMeasureCol}
                 </th>
-                <th className="w-[9.5rem] border-r border-surface-200 px-2 py-2.5 font-semibold">
+                <th className="w-[9.5rem] px-2 py-2.5 font-semibold">
                   {t.serviceSheetForm.unitCol}
-                </th>
-                <th className="w-[5.5rem] px-2 py-2.5 text-center font-semibold">
-                  {t.serviceSheetForm.kilogramsCol}
                 </th>
               </tr>
             </thead>
@@ -503,7 +497,7 @@ export function ServiceSheetFormView({
                     {index === 0 && (
                       <td
                         rowSpan={unitRowSpan}
-                        className="border-r border-surface-100 bg-white px-2 py-2 align-top"
+                        className="bg-white px-2 py-2 align-top"
                       >
                         <div className="flex flex-col gap-1.5">
                           {SERVICE_SHEET_UNIT_OPTIONS.map((option) => {
@@ -550,44 +544,6 @@ export function ServiceSheetFormView({
                         </div>
                       </td>
                     )}
-                    <td className="px-2 py-2 align-middle">
-                      {editable ? (
-                        <div className="relative w-full">
-                          <input
-                            type="number"
-                            min={0}
-                            step="any"
-                            value={entry.kilograms ?? ''}
-                            onChange={(e) =>
-                              handleKilogramsChange(row.id, e.target.value)
-                            }
-                            className={cn(
-                              fieldInputClass,
-                              'w-full bg-surface-50 pr-8 text-right'
-                            )}
-                          />
-                          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] font-medium text-surface-500">
-                            {t.serviceSheetForm.kg}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="relative w-full">
-                          <div
-                            className={cn(
-                              fieldInputClass,
-                              'min-h-[1.75rem] bg-surface-50 pr-8 text-right'
-                            )}
-                          >
-                            {entry.kilograms != null
-                              ? formatNumber(entry.kilograms, locale)
-                              : ''}
-                          </div>
-                          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] font-medium text-surface-500">
-                            {t.serviceSheetForm.kg}
-                          </span>
-                        </div>
-                      )}
-                    </td>
                   </tr>
                 );
               })}
@@ -611,24 +567,96 @@ export function ServiceSheetFormView({
                     ))}
                   </div>
                 </td>
-                <td className="px-2 py-2" />
               </tr>
             </tbody>
           </table>
         </div>
       </FormSection>
 
+      {/* Matches paper Orden de Salida: entry/exit + operator, then plates + seal */}
       <FormSection>
-        <div className="grid grid-cols-2 sm:grid-cols-5">
+        <div className="grid grid-cols-2 sm:grid-cols-4">
           {[
-            { label: t.serviceSheetForm.operatorName, field: 'operatorName' as const, value: sheet.operatorName },
-            { label: t.serviceSheetForm.operatorId, field: 'operatorId' as const, value: sheet.operatorId },
-            { label: t.serviceSheet.vehicle, field: 'vehiclePlates' as const, value: sheet.vehiclePlates },
-            { label: t.serviceSheet.trailer, field: 'trailerPlates' as const, value: sheet.trailerPlates },
-            { label: t.serviceSheet.seal, field: 'sealNumber' as const, value: sheet.sealNumber },
+            {
+              label: t.serviceSheetForm.entryTime,
+              node: (
+                <DateTimeFormField
+                  value={sheet.siteEntryTime}
+                  editable={editable}
+                  onChange={(v) => updateField('siteEntryTime', v)}
+                />
+              ),
+            },
+            {
+              label: t.serviceSheetForm.exitTime,
+              node: (
+                <DateTimeFormField
+                  value={sheet.siteExitTime}
+                  editable={editable}
+                  onChange={(v) => updateField('siteExitTime', v)}
+                />
+              ),
+            },
+            {
+              label: t.serviceSheetForm.operatorId,
+              node: (
+                <FormField
+                  value={sheet.operatorId}
+                  editable={editable}
+                  onChange={(v) => updateField('operatorId', v)}
+                />
+              ),
+            },
+            {
+              label: t.serviceSheetForm.operatorName,
+              node: (
+                <FormField
+                  value={sheet.operatorName}
+                  editable={editable}
+                  onChange={(v) => updateField('operatorName', v)}
+                />
+              ),
+            },
+          ].map(({ label, node }) => (
+            <div key={label} className="border-r border-b border-surface-200 last:border-r-0 sm:last:border-r-0">
+              <SectionCell
+                header
+                className="border-x-0 border-t-0 text-center text-[10px] sm:text-[11px]"
+              >
+                {label}
+              </SectionCell>
+              <SectionCell className="min-h-[2.5rem] border-x-0 border-t-0 text-center">
+                {node}
+              </SectionCell>
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3">
+          {[
+            {
+              label: t.serviceSheetForm.vehiclePlates,
+              field: 'vehiclePlates' as const,
+              value: sheet.vehiclePlates,
+            },
+            {
+              label: t.serviceSheetForm.trailerPlates,
+              field: 'trailerPlates' as const,
+              value: sheet.trailerPlates,
+            },
+            {
+              label: t.serviceSheetForm.sealNumber,
+              field: 'sealNumber' as const,
+              value: sheet.sealNumber,
+            },
           ].map(({ label, field, value }) => (
-            <div key={label} className="border-r border-surface-200 last:border-r-0">
-              <SectionCell header className="border-x-0 border-t-0 text-center text-[10px] sm:text-[11px]">
+            <div
+              key={label}
+              className="border-r border-surface-200 last:border-r-0"
+            >
+              <SectionCell
+                header
+                className="border-x-0 border-t-0 text-center text-[10px] sm:text-[11px]"
+              >
                 {label}
               </SectionCell>
               <SectionCell className="min-h-[2.5rem] border-x-0 border-t-0 text-center">
@@ -643,31 +671,56 @@ export function ServiceSheetFormView({
         </div>
       </FormSection>
 
-      <FormSection>
-        <div className="grid grid-cols-1 sm:grid-cols-2">
-          <TimeBlock
-            title={t.serviceSheetForm.serviceClient}
-            editable={editable}
-            onTimeChange={updateField}
-            rows={[
-              { label: t.serviceSheetForm.siteEntryLabel, field: 'siteEntryTime', value: sheet.siteEntryTime },
-              { label: t.serviceSheetForm.siteExitLabel, field: 'siteExitTime', value: sheet.siteExitTime },
-            ]}
-          />
-          <TimeBlock
-            title={t.serviceSheetForm.warehouseSection}
-            editable={editable}
-            onTimeChange={updateField}
-            rows={[
-              { label: t.serviceSheetForm.warehouseEntryLabel, field: 'warehouseEntryTime', value: sheet.warehouseEntryTime },
-              { label: t.serviceSheetForm.warehouseExitLabel, field: 'warehouseExitTime', value: sheet.warehouseExitTime },
-            ]}
-          />
-        </div>
-      </FormSection>
-
       <FormSection className="p-3 sm:p-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mb-3 grid gap-3 sm:grid-cols-2">
+          {sheet.photoUri && (
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-surface-500">
+                {t.tickets.orderPhoto}
+              </p>
+              <img
+                src={sheet.photoUri}
+                alt="Orden"
+                className="max-h-40 rounded-lg border border-surface-200 object-contain"
+              />
+            </div>
+          )}
+          {(sheet.tickets ?? []).length > 0 && (
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-surface-500">
+                {t.tickets.title}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {(sheet.tickets ?? []).map((ticket) =>
+                  ticket.photoUri ? (
+                    <a
+                      key={ticket.id}
+                      href={ticket.photoUri}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block"
+                    >
+                      <img
+                        src={ticket.photoUri}
+                        alt={ticket.scaleFolio || ticket.id}
+                        className="h-20 w-20 rounded-lg border border-surface-200 object-cover"
+                      />
+                    </a>
+                  ) : (
+                    <div
+                      key={ticket.id}
+                      className="rounded-lg border border-surface-200 bg-surface-50 px-2 py-1 text-xs"
+                    >
+                      {ticket.scaleFolio || ticket.id}
+                      {ticket.netWeight != null ? ` · ${ticket.netWeight} kg` : ''}
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {(
             [
               {
@@ -689,18 +742,11 @@ export function ServiceSheetFormView({
                 value: sheet.autoriza,
               },
               {
-                // Operador: recibio + entrega are the same person (one UI column).
                 title: t.serviceSheet.operatorReceivedDelivered,
                 role: t.serviceSheet.operatorReceivedDeliveredRole,
                 field: 'recibio' as const,
                 value: sheet.recibio || sheet.entrega,
                 syncEntrega: true,
-              },
-              {
-                title: t.serviceSheet.clientReceived,
-                role: t.serviceSheet.clientReceivedRole,
-                field: 'recibe' as const,
-                value: sheet.recibe,
               },
             ] as const
           ).map(({ title, role, field, value, ...rest }) => (

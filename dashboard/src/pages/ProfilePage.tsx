@@ -14,13 +14,16 @@ import {
   subscribeToMyRoleChangeRequests,
   subscribeToMySiteChangeRequests,
   subscribeToSites,
+  updateUserAssignedLogistics,
   updateUserAssignedSites,
   updateUserProfile,
 } from '@/services/firestoreData';
 import { getRoleLabel } from '@/i18n/translations';
 import {
+  LOGISTICS_ACCOUNTS,
   REQUESTABLE_ROLES,
   canRequestSiteAssignment,
+  logisticsDisplayName,
   siteDisplayName,
   type CatalogSite,
   type Language,
@@ -28,7 +31,7 @@ import {
   type SiteChangeRequest,
   type UserRole,
 } from '@/types';
-import { Check, Globe, MapPin, Shield } from 'lucide-react';
+import { Check, Globe, MapPin, Shield, Truck } from 'lucide-react';
 
 export function ProfilePage() {
   const {
@@ -37,6 +40,7 @@ export function ProfilePage() {
     role,
     isAdmin,
     assignedSiteIds,
+    assignedLogisticsIds,
     refreshProfile,
   } = useAuth();
   const { t, language, setLanguage } = useTranslation();
@@ -51,7 +55,12 @@ export function ProfilePage() {
   const [siteRequests, setSiteRequests] = useState<SiteChangeRequest[]>([]);
   const [sites, setSites] = useState<CatalogSite[]>([]);
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
+  const [selectedLogisticsIds, setSelectedLogisticsIds] = useState<string[]>(
+    []
+  );
   const [adminOverrideUserId, setAdminOverrideUserId] = useState('');
+  const [adminLogisticsOverrideUserId, setAdminLogisticsOverrideUserId] =
+    useState('');
   const [requestBusy, setRequestBusy] = useState(false);
 
   useEffect(() => {
@@ -59,6 +68,7 @@ export function ProfilePage() {
       setName(profile.name);
       setSelectedLang(profile.language);
       setSelectedSiteIds(profile.assignedSiteIds ?? []);
+      setSelectedLogisticsIds(profile.assignedLogisticsIds ?? []);
     }
   }, [profile]);
 
@@ -85,6 +95,7 @@ export function ProfilePage() {
 
   const canEditSiteAssignments =
     canRequestSiteAssignment(role) || isAdmin;
+  const canEditLogisticsAssignments = role === 'operador' || isAdmin;
 
   if (!profile || !user) {
     return (
@@ -149,6 +160,31 @@ export function ProfilePage() {
     setSelectedSiteIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
+  }
+
+  function toggleLogistics(id: string) {
+    setSelectedLogisticsIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  async function submitLogisticsAssignment() {
+    setRequestBusy(true);
+    setError('');
+    try {
+      const targetId =
+        isAdmin && adminLogisticsOverrideUserId.trim()
+          ? adminLogisticsOverrideUserId.trim()
+          : user!.uid;
+      await updateUserAssignedLogistics(targetId, selectedLogisticsIds);
+      await refreshProfile();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.requests.error);
+    } finally {
+      setRequestBusy(false);
+    }
   }
 
   async function submitSiteRequest() {
@@ -434,6 +470,84 @@ export function ProfilePage() {
                     </Button>
                   </>
                 )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Logistics accounts — operador self-assign, admin override */}
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <span className="inline-flex items-center gap-2">
+                <Truck className="h-4 w-4" />
+                {t.requests.logisticsTitle}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!canEditLogisticsAssignments ? (
+              <>
+                <p className="text-sm text-surface-600">
+                  {t.requests.logisticsRoleHint}
+                </p>
+                <p className="text-xs text-surface-500">
+                  {t.requests.currentLogistics}:{' '}
+                  {assignedLogisticsIds.length === 0
+                    ? '—'
+                    : assignedLogisticsIds
+                        .map((id) => logisticsDisplayName(id, language))
+                        .join(', ')}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-surface-600">
+                  {isAdmin
+                    ? t.requests.adminLogisticsHint
+                    : t.requests.logisticsHint}
+                </p>
+                {assignedLogisticsIds.length > 0 && (
+                  <p className="text-xs text-surface-500">
+                    {t.requests.currentLogistics}:{' '}
+                    {assignedLogisticsIds
+                      .map((id) => logisticsDisplayName(id, language))
+                      .join(', ')}
+                  </p>
+                )}
+
+                {isAdmin && (
+                  <Input
+                    label={t.requests.overrideUserId}
+                    value={adminLogisticsOverrideUserId}
+                    onChange={(e) =>
+                      setAdminLogisticsOverrideUserId(e.target.value)
+                    }
+                    placeholder={user.uid}
+                  />
+                )}
+
+                <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-surface-200 p-3">
+                  {LOGISTICS_ACCOUNTS.map((account) => (
+                    <label
+                      key={account.id}
+                      className="flex items-center gap-2 text-sm text-surface-800"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedLogisticsIds.includes(account.id)}
+                        onChange={() => toggleLogistics(account.id)}
+                      />
+                      {logisticsDisplayName(account.id, language)}
+                    </label>
+                  ))}
+                </div>
+                <Button
+                  disabled={requestBusy || selectedLogisticsIds.length === 0}
+                  onClick={() => void submitLogisticsAssignment()}
+                >
+                  {t.requests.submitLogistics}
+                </Button>
               </>
             )}
           </CardContent>

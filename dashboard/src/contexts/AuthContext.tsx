@@ -40,6 +40,7 @@ interface AuthContextValue {
   canCreateSheets: boolean;
   canReviewRoleRequests: boolean;
   assignedSiteIds: string[];
+  assignedLogisticsIds: string[];
   oauthError: string | null;
   clearOauthError: () => void;
   refreshProfile: () => Promise<void>;
@@ -61,6 +62,7 @@ const AuthContext = createContext<AuthContextValue>({
   canCreateSheets: false,
   canReviewRoleRequests: false,
   assignedSiteIds: [],
+  assignedLogisticsIds: [],
   oauthError: null,
   clearOauthError: () => {},
   refreshProfile: async () => {},
@@ -146,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         canCreateSheets: canCreateServiceSheet(role),
         canReviewRoleRequests: canReviewRoleRequests(role),
         assignedSiteIds: profile?.assignedSiteIds ?? [],
+        assignedLogisticsIds: profile?.assignedLogisticsIds ?? [],
         oauthError,
         clearOauthError,
         refreshProfile,
